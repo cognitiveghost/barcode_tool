@@ -16,6 +16,9 @@ def append_print_log(
     description: str,
 ) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    # ponytail: unlocked check-then-append on a shared-network-folder file;
+    # concurrent printers from two machines can race on the header write or
+    # interleave rows. Add file locking if concurrent printing becomes real.
     is_new_file = not log_path.exists()
     with log_path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)

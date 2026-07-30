@@ -28,4 +28,4 @@ class MainWindow(QMainWindow):
         dialog = SettingsWindow(self._settings, self._settings_path, parent=self)
         if dialog.exec():
             self._settings = load_settings(self._settings_path)
-            self.positions_panel._settings = self._settings
+            self.positions_panel.refresh_from_settings(self._settings)

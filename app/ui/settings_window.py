@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -98,6 +99,9 @@ class SettingsWindow(QDialog):
         }
 
     def _save_and_close(self) -> None:
+        if self._settings_path is None:
+            QMessageBox.warning(self, "Cannot save", "No settings file location configured.")
+            return
         full_settings = load_settings(self._settings_path)
         full_settings.update(self.get_current_settings())
         save_settings(self._settings_path, full_settings)

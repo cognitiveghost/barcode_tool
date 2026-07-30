@@ -1,10 +1,14 @@
 from PIL import Image
 
-from app.core.label_renderer import mm_to_px, render_label
+from app.core.label_renderer import font_size_for_height, mm_to_px, render_label
 
 
 def test_mm_to_px_at_203_dpi():
     assert mm_to_px(25.4, dpi=203) == 203
+
+
+def test_font_size_scales_with_label_height():
+    assert font_size_for_height(1198) > font_size_for_height(304) > font_size_for_height(100)
 
 
 def test_render_label_returns_image_of_expected_size():

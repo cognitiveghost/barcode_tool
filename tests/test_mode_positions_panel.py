@@ -1,5 +1,5 @@
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.ui.mode_positions_panel import PositionsModePanel
 
@@ -54,3 +54,78 @@ def test_print_current_labels_writes_pdf_and_log(tmp_path):
     log_path = tmp_path / "audit_log.csv"
     log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
     assert len(log_lines) == 2  # header + one entry
+    assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030"]
+
+
+def test_generate_without_label_size_raises_value_error():
+    _app()
+    panel = PositionsModePanel({"warehouses": SETTINGS["warehouses"], "label_sizes": []})
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+
+    with pytest.raises(ValueError):
+        panel.generate()
+
+
+def test_print_button_click_invokes_print_current_labels(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    calls = []
+    monkeypatch.setattr(panel, "print_current_labels", lambda: calls.append(True))
+
+    panel.print_button.click()
+
+    assert calls == [True]
+
+
+def test_print_button_click_without_generated_labels_shows_warning(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()
+
+    assert len(warnings) == 1
+
+
+def test_print_current_labels_falls_back_to_settings_dir_when_shared_folder_empty(
+    monkeypatch, tmp_path
+):
+    _app()
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.default_settings_path",
+        lambda: tmp_path / "settings.json",
+    )
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": ""}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+    panel.generate()
+
+    panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
+
+    assert (tmp_path / "audit_log.csv").exists()
+
+
+def test_refresh_from_settings_rebuilds_combos():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.refresh_from_settings(
+        {
+            "warehouses": [{"name": "Second", "prefix": "C002"}],
+            "label_sizes": [{"name": "80x80mm", "width_mm": 80, "height_mm": 80}],
+        }
+    )
+
+    warehouse_names = [
+        panel.warehouse_combo.itemText(i) for i in range(panel.warehouse_combo.count())
+    ]
+    label_size_names = [
+        panel.label_size_combo.itemText(i) for i in range(panel.label_size_combo.count())
+    ]
+    assert warehouse_names == ["Second"]
+    assert label_size_names == ["80x80mm"]

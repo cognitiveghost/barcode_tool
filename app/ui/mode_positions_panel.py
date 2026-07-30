@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.audit_log import append_print_log
+from app.core.config import default_settings_path
 from app.core.label_renderer import render_label
 from app.core.position_generator import generate_position_codes
 from app.core.print_service import print_labels
@@ -24,14 +25,10 @@ from app.core.print_service import print_labels
 class PositionsModePanel(QWidget):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
-        self._settings = settings
         self.generated_codes: list[str] = []
         self.generated_labels: list[Image.Image] = []
 
         self.warehouse_combo = QComboBox()
-        for warehouse in settings.get("warehouses", []):
-            self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
-
         self.corridor_edit = QLineEdit()
         self.number_from_edit = QLineEdit()
         self.number_to_edit = QLineEdit()
@@ -43,12 +40,14 @@ class PositionsModePanel(QWidget):
         self.custom_text_edit = QLineEdit()
 
         self.label_size_combo = QComboBox()
-        for size in settings.get("label_sizes", []):
-            self.label_size_combo.addItem(size["name"], size)
+        self.refresh_from_settings(settings)
 
         self.result_label = QLabel("0 labels generated")
         generate_button = QPushButton("Generate")
         generate_button.clicked.connect(self._on_generate_clicked)
+
+        self.print_button = QPushButton("Print")
+        self.print_button.clicked.connect(self._on_print_clicked)
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
@@ -65,12 +64,30 @@ class PositionsModePanel(QWidget):
         layout.addLayout(form)
         layout.addWidget(generate_button)
         layout.addWidget(self.result_label)
+        layout.addWidget(self.print_button)
+
+    def refresh_from_settings(self, settings: dict) -> None:
+        self._settings = settings
+
+        self.warehouse_combo.clear()
+        for warehouse in settings.get("warehouses", []):
+            self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
+
+        self.label_size_combo.clear()
+        for size in settings.get("label_sizes", []):
+            self.label_size_combo.addItem(size["name"], size)
 
     def _on_generate_clicked(self) -> None:
         try:
             self.generate()
         except ValueError as error:
             QMessageBox.warning(self, "Invalid range", str(error))
+
+    def _on_print_clicked(self) -> None:
+        try:
+            self.print_current_labels()
+        except ValueError as error:
+            QMessageBox.warning(self, "Nothing to print", str(error))
 
     def generate(self) -> list[tuple[str, Image.Image]]:
         warehouse_prefix = self.warehouse_combo.currentData() or ""
@@ -88,6 +105,8 @@ class PositionsModePanel(QWidget):
         )
 
         label_size = self.label_size_combo.currentData()
+        if label_size is None:
+            raise ValueError("No label size selected - add one in Settings first")
         custom_text = self.custom_text_edit.text()
 
         results = []
@@ -123,7 +142,8 @@ class PositionsModePanel(QWidget):
         )
 
         warehouse_prefix = self.warehouse_combo.currentData() or ""
-        log_path = Path(self._settings.get("shared_folder", ".")) / "audit_log.csv"
+        shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
+        log_path = Path(shared_folder) / "audit_log.csv"
         if len(self.generated_codes) > 1:
             description = f"{self.generated_codes[0]}..{self.generated_codes[-1]}"
         else:

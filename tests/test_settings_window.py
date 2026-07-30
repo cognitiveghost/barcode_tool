@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.core.config import DEFAULT_SETTINGS, load_settings
 from app.ui.settings_window import SettingsWindow
@@ -32,3 +32,17 @@ def test_save_writes_settings_to_disk(tmp_path):
 
     saved = load_settings(settings_path)
     assert saved["shared_folder"] == "/mnt/shared"
+
+
+def test_save_with_no_settings_path_warns_and_does_not_close(monkeypatch):
+    _app()
+    window = SettingsWindow(DEFAULT_SETTINGS, settings_path=None)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+    accepted = []
+    monkeypatch.setattr(window, "accept", lambda: accepted.append(True))
+
+    window._save_and_close()
+
+    assert len(warnings) == 1
+    assert accepted == []

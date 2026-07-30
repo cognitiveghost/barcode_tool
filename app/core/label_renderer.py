@@ -11,6 +11,10 @@ def mm_to_px(mm: float, dpi: int = 203) -> int:
     return round(mm / MM_PER_INCH * dpi)
 
 
+def font_size_for_height(height_px: int) -> int:
+    return max(10, min(60, round(height_px * 0.08)))
+
+
 def render_label(
     barcode_data: str,
     visible_text: str,
@@ -33,7 +37,7 @@ def render_label(
     canvas.paste(barcode_img, (barcode_x, 0))
 
     draw = ImageDraw.Draw(canvas)
-    font = ImageFont.load_default()
+    font = ImageFont.load_default(size=font_size_for_height(height_px))
     text_bbox = draw.textbbox((0, 0), visible_text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_x = max((width_px - text_width) // 2, 0)
