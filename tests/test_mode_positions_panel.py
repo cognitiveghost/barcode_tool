@@ -36,3 +36,21 @@ def test_invalid_range_raises_value_error():
 
     with pytest.raises(ValueError):
         panel.generate()
+
+
+def test_print_current_labels_writes_pdf_and_log(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+    panel.generate()
+
+    pdf_path = tmp_path / "out.pdf"
+    panel.print_current_labels(output_pdf_path=pdf_path)
+
+    assert pdf_path.exists()
+    log_path = tmp_path / "audit_log.csv"
+    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(log_lines) == 2  # header + one entry

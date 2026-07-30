@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PIL import Image
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -13,8 +15,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.core.audit_log import append_print_log
 from app.core.label_renderer import render_label
 from app.core.position_generator import generate_position_codes
+from app.core.print_service import print_labels
 
 
 class PositionsModePanel(QWidget):
@@ -102,3 +106,32 @@ class PositionsModePanel(QWidget):
         self.generated_labels = [image for _, image in results]
         self.result_label.setText(f"{len(results)} labels generated")
         return results
+
+    def print_current_labels(self, output_pdf_path: Path | None = None) -> None:
+        if not self.generated_labels:
+            raise ValueError("Nothing to print - generate labels first")
+
+        label_size = self.label_size_combo.currentData()
+        printer_name = self._settings.get("default_printer") or None
+
+        print_labels(
+            self.generated_labels,
+            width_mm=label_size["width_mm"],
+            height_mm=label_size["height_mm"],
+            printer_name=printer_name,
+            output_pdf_path=output_pdf_path,
+        )
+
+        warehouse_prefix = self.warehouse_combo.currentData() or ""
+        log_path = Path(self._settings.get("shared_folder", ".")) / "audit_log.csv"
+        if len(self.generated_codes) > 1:
+            description = f"{self.generated_codes[0]}..{self.generated_codes[-1]}"
+        else:
+            description = self.generated_codes[0]
+        append_print_log(
+            log_path,
+            mode="positions",
+            warehouse_prefix=warehouse_prefix,
+            count=len(self.generated_codes),
+            description=description,
+        )
