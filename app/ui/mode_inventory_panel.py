@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -187,7 +187,7 @@ class InventoryModePanel(QWidget):
         width_mm, height_mm = apply_orientation(
             label_size["width_mm"], label_size["height_mm"], self.orientation_combo.currentText()
         )
-        generated_date = datetime.now().strftime("%d%m%Y")
+        generated_date = datetime.now(timezone.utc).astimezone().strftime("%d%m%Y")
 
         images = []
         for item in checked:

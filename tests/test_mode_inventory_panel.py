@@ -6,7 +6,11 @@ from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.ui.mode_inventory_panel import TABLE_COLUMNS, InventoryModePanel, _describe_skus
+from app.ui.mode_inventory_panel import (
+    TABLE_COLUMNS,
+    InventoryModePanel,
+    _describe_skus,
+)
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
