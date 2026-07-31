@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from app.core.barcode_engine import generate_barcode_image, generate_qr_image
 from app.core.fonts import load_font
@@ -63,10 +63,18 @@ def render_label(
     return canvas
 
 
+_MIN_MIDDLE_WIDTH_MM = 10
+
+
 def render_inventory_label(
-    sku_data: str,
-    text: str,
+    sku: str,
+    name: str,
+    client: str,
+    batch: str,
+    expiry: str,
+    position_code: str,
     position_data: str,
+    generated_date: str,
     width_mm: float,
     height_mm: float,
     dpi: int = 203,
@@ -76,25 +84,71 @@ def render_inventory_label(
     canvas = Image.new("RGB", (width_px, height_px), "white")
     draw = ImageDraw.Draw(canvas)
 
-    top_height = round(height_px * 0.7)
-    sku_qr = generate_qr_image(sku_data)
-    sku_size = max(1, min(top_height - 4, width_px // 2))
-    sku_qr = sku_qr.resize((sku_size, sku_size))
+    short_side = min(width_px, height_px)
+    sku_size = max(1, round(short_side * 0.5))
+    secondary_size = max(1, round(short_side * 0.25))
+    min_middle_width_px = mm_to_px(_MIN_MIDDLE_WIDTH_MM, dpi)
+
+    secondary_chips = [value for value in (expiry, batch) if value]
+    if secondary_chips and (width_px - sku_size - secondary_size) < min_middle_width_px:
+        secondary_chips = []
+
+    bold_size = font_size_for_height(sku_size)
+    caption_size = font_size_for_height(secondary_size)
+    bold_font = load_font(bold_size, bold=True)
+    caption_font = load_font(caption_size)
+
+    # SKU: top-left corner, bold caption underneath.
+    sku_qr = generate_qr_image(sku).resize((sku_size, sku_size))
     canvas.paste(sku_qr, (0, 0))
+    draw.text((0, sku_size + 2), sku, fill="black", font=bold_font)
 
-    text_font = ImageFont.load_default(size=font_size_for_height(top_height))
-    draw.multiline_text((sku_size + 6, 2), text, fill="black", font=text_font)
+    # Expiry then Batch: stacked top-right corner, each captioned underneath.
+    right_x = width_px - secondary_size
+    chip_y = 0
+    for value in secondary_chips:
+        chip_qr = generate_qr_image(value).resize((secondary_size, secondary_size))
+        canvas.paste(chip_qr, (right_x, chip_y))
+        draw.text((right_x, chip_y + secondary_size + 2), value, fill="black", font=caption_font)
+        chip_y += secondary_size + caption_size + 6
 
-    draw.line([(0, top_height), (width_px, top_height)], fill="black", width=1)
+    # Position: bottom-left corner, bold caption beside it (to the right).
+    position_y = height_px - secondary_size
+    position_qr = generate_qr_image(position_data).resize((secondary_size, secondary_size))
+    canvas.paste(position_qr, (0, position_y))
+    caption_bbox = draw.textbbox((0, 0), position_code, font=bold_font)
+    caption_height = caption_bbox[3] - caption_bbox[1]
+    draw.text(
+        (secondary_size + 6, position_y + max(0, (secondary_size - caption_height) // 2)),
+        position_code,
+        fill="black",
+        font=bold_font,
+    )
 
-    bottom_height = height_px - top_height
-    position_qr = generate_qr_image(position_data)
-    position_size = max(1, min(bottom_height - 4, width_px // 4))
-    position_qr = position_qr.resize((position_size, position_size))
-    position_y = top_height + max(0, (bottom_height - position_size) // 2)
-    canvas.paste(position_qr, (4, position_y))
+    # Middle column: Product name / Client / Exp+Batch / SKU, from upper-middle.
+    middle_x = sku_size + 6
+    exp_batch_parts = [
+        part
+        for part in (f"Exp {expiry}" if expiry else "", f"Batch {batch}" if batch else "")
+        if part
+    ]
+    text_lines = [line for line in (name, client, " · ".join(exp_batch_parts), sku) if line]
+    line_y = 4
+    for line in text_lines:
+        draw.text((middle_x, line_y), line, fill="black", font=caption_font)
+        line_bbox = draw.textbbox((0, 0), line, font=caption_font)
+        line_y += (line_bbox[3] - line_bbox[1]) + 4
 
-    caption_font = ImageFont.load_default(size=font_size_for_height(bottom_height))
-    draw.text((position_size + 10, top_height + 4), "shelf position", fill="black", font=caption_font)
+    # Generation date: small, bottom-right corner.
+    date_font = load_font(max(8, caption_size - 2))
+    date_bbox = draw.textbbox((0, 0), generated_date, font=date_font)
+    date_width = date_bbox[2] - date_bbox[0]
+    date_height = date_bbox[3] - date_bbox[1]
+    draw.text(
+        (width_px - date_width - 2, height_px - date_height - 2),
+        generated_date,
+        fill="black",
+        font=date_font,
+    )
 
     return canvas

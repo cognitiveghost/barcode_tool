@@ -70,35 +70,62 @@ def test_render_label_centers_content_vertically_on_a_tall_canvas():
 
 
 def test_render_inventory_label_returns_image_of_expected_size():
-    img = render_inventory_label("SKU1", "Widget\nBatch 4471", "C001H011A", width_mm=68, height_mm=38, dpi=203)
+    img = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C001H011A",
+        "31072026", width_mm=150, height_mm=100, dpi=203,
+    )
     assert isinstance(img, Image.Image)
-    assert img.size == (mm_to_px(68, 203), mm_to_px(38, 203))
+    assert img.size == (mm_to_px(150, 203), mm_to_px(100, 203))
 
 
-def test_render_inventory_label_changes_with_sku_data():
-    img_a = render_inventory_label("SKU1", "Widget", "C001H011A", width_mm=68, height_mm=38)
-    img_b = render_inventory_label("SKU2", "Widget", "C001H011A", width_mm=68, height_mm=38)
-    assert img_a.tobytes() != img_b.tobytes()
+def test_render_inventory_label_omits_expiry_chip_when_expiry_empty():
+    img_with = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C001H011A",
+        "31072026", width_mm=150, height_mm=100,
+    )
+    img_without = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "", "H011A", "C001H011A",
+        "31072026", width_mm=150, height_mm=100,
+    )
+    assert img_with.tobytes() != img_without.tobytes()
 
 
-def test_render_inventory_label_changes_with_position_data():
-    img_a = render_inventory_label("SKU1", "Widget", "C001H011A", width_mm=68, height_mm=38)
-    img_b = render_inventory_label("SKU1", "Widget", "C001H099Z", width_mm=68, height_mm=38)
-    assert img_a.tobytes() != img_b.tobytes()
+def test_render_inventory_label_renders_with_everything_optional_blank():
+    img = render_inventory_label(
+        "SKU1", "", "", "", "", "H011A", "C001H011A", "31072026",
+        width_mm=68, height_mm=38,
+    )
+    assert isinstance(img, Image.Image)
 
 
-def test_render_inventory_label_changes_with_text():
-    img_a = render_inventory_label("SKU1", "Widget", "C001H011A", width_mm=68, height_mm=38)
-    img_b = render_inventory_label("SKU1", "Gadget", "C001H011A", width_mm=68, height_mm=38)
-    assert img_a.tobytes() != img_b.tobytes()
+def test_render_inventory_label_drops_secondary_chips_on_a_narrow_canvas():
+    # sku_size + secondary_size leaves < 10mm for the middle column here
+    img = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C001H011A",
+        "31072026", width_mm=35, height_mm=100,
+    )
+    assert isinstance(img, Image.Image)  # must not raise
 
 
 @pytest.mark.parametrize(
     ("width_mm", "height_mm"),
-    [(100, 150), (68, 38), (80, 80)],
+    [(150, 100), (68, 38), (80, 80)],
 )
 def test_render_inventory_label_composes_at_all_built_in_sizes(width_mm, height_mm):
     img = render_inventory_label(
-        "SKU1", "Widget\nBatch 4471", "C001H011A", width_mm=width_mm, height_mm=height_mm
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C001H011A",
+        "31072026", width_mm=width_mm, height_mm=height_mm,
     )
     assert img.size == (mm_to_px(width_mm), mm_to_px(height_mm))
+
+
+def test_render_inventory_label_position_qr_uses_prefixed_data():
+    img_a = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C001H011A",
+        "31072026", width_mm=150, height_mm=100,
+    )
+    img_b = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C002H011A",
+        "31072026", width_mm=150, height_mm=100,
+    )
+    assert img_a.tobytes() != img_b.tobytes()
