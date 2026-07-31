@@ -149,6 +149,14 @@ columns on either side).
   adapts to arbitrary label dimensions; exact mm/pt numbers are tuned by
   rendering and visually inspecting the debug PDF (§6) rather than derived
   analytically up front.
+- Starting point for the implementer (adjust after looking at a rendered
+  preview, not a hard requirement): content area is 140×90mm after the 5mm
+  margin. Left column ~45mm wide, SKU/Position QR side ~38mm each (leaves
+  ~14mm split between the two inward captions and the gap between them).
+  Right column ~24mm wide, Expiry/Batch QR side ~27mm each. Middle column
+  takes the remaining ~71mm. Divider lines ~3px. Caption font sized via
+  the existing `font_size_for_height`-style scaling, not a fixed point
+  size, so it still degrades sanely if these mm numbers get tuned later.
 - The `_MIN_MIDDLE_WIDTH_MM` chip-dropping-together logic from v2 is
   deleted — it existed to handle small/narrow canvases that no longer
   exist now that the size is fixed at 150×100. Expiry/Batch are dropped
