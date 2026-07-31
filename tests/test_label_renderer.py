@@ -1,6 +1,8 @@
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
+from app.core.fonts import load_font
 from app.core.label_renderer import (
+    _fit_text,
     apply_orientation,
     font_size_for_height,
     mm_to_px,
@@ -107,6 +109,44 @@ def test_render_inventory_label_renders_with_everything_optional_blank():
         width_mm=150, height_mm=100,
     )
     assert isinstance(img, Image.Image)
+
+
+def test_fit_text_returns_text_unchanged_when_it_already_fits():
+    draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    font = load_font(20)
+    assert _fit_text(draw, "abc", font, 1000) == "abc"
+
+
+def test_fit_text_truncates_with_ellipsis_when_too_wide():
+    draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    font = load_font(20)
+    fitted = _fit_text(draw, "a" * 100, font, 100)
+    assert fitted != "a" * 100
+    assert fitted.endswith("…")
+    bbox = draw.textbbox((0, 0), fitted, font=font)
+    assert bbox[2] - bbox[0] <= 100
+
+
+def test_render_inventory_label_long_name_does_not_crash_and_changes_output():
+    short = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C001H011A",
+        "31072026", width_mm=150, height_mm=100,
+    )
+    long_fields = render_inventory_label(
+        "SKU-" + "1" * 60,
+        "A very long product name that would overflow the label" * 3,
+        "A very long client name" * 3,
+        "B" * 40,
+        "2027-03",
+        "H011A",
+        "C001H011A",
+        "31072026",
+        width_mm=150,
+        height_mm=100,
+    )
+    assert isinstance(long_fields, Image.Image)
+    assert long_fields.size == short.size
+    assert long_fields.tobytes() != short.tobytes()
 
 
 def test_render_inventory_label_position_qr_uses_prefixed_data():

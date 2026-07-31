@@ -200,6 +200,7 @@ class InventoryModePanel(QWidget):
         )
 
         shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
+        Path(shared_folder).mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc).astimezone()
         debug_pdf_path = Path(shared_folder) / f"inventory_label_preview_{now:%Y%m%d_%H%M%S}.pdf"
         print_labels(

@@ -66,6 +66,21 @@ def render_label(
 _MARGIN_MM = 5
 
 
+def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str:
+    def width(s: str) -> int:
+        bbox = draw.textbbox((0, 0), s, font=font)
+        return bbox[2] - bbox[0]
+
+    if max_width <= 0 or width(text) <= max_width:
+        return text
+    ellipsis = "…"
+    for cut in range(len(text) - 1, 0, -1):
+        candidate = text[:cut] + ellipsis
+        if width(candidate) <= max_width:
+            return candidate
+    return ellipsis
+
+
 def render_inventory_label(
     sku: str,
     name: str,
@@ -100,32 +115,38 @@ def render_inventory_label(
     right_x = content_x0 + content_width - secondary_size
     divider_left = content_x0 + primary_size
     divider_right = right_x
+    left_caption_max_width = primary_size - 2
 
     # SKU: top of the left column, bold caption below it.
     sku_qr = generate_qr_image(sku).resize((primary_size, primary_size))
     canvas.paste(sku_qr, (left_x, content_y0))
-    draw.text((left_x, content_y0 + primary_size + gap), sku, fill="black", font=bold_font)
+    sku_caption = _fit_text(draw, sku, bold_font, left_caption_max_width)
+    draw.text((left_x, content_y0 + primary_size + gap), sku_caption, fill="black", font=bold_font)
 
     # Position: bottom of the left column, bold caption above it.
     position_qr_y = content_y0 + content_height - primary_size
-    position_bbox = draw.textbbox((0, 0), position_code, font=bold_font)
+    position_caption = _fit_text(draw, position_code, bold_font, left_caption_max_width)
+    position_bbox = draw.textbbox((0, 0), position_caption, font=bold_font)
     position_caption_height = position_bbox[3] - position_bbox[1]
     draw.text(
         (left_x, position_qr_y - position_caption_height - gap),
-        position_code,
+        position_caption,
         fill="black",
         font=bold_font,
     )
     position_qr = generate_qr_image(position_data).resize((primary_size, primary_size))
     canvas.paste(position_qr, (left_x, position_qr_y))
 
+    right_caption_max_width = secondary_size - gap
+
     # Expiry: top of the right column, caption below it. Omitted if blank.
     if expiry:
         expiry_qr = generate_qr_image(expiry).resize((secondary_size, secondary_size))
         canvas.paste(expiry_qr, (right_x, content_y0))
+        expiry_caption = _fit_text(draw, expiry, caption_font, right_caption_max_width)
         draw.text(
             (right_x + gap, content_y0 + secondary_size + gap),
-            expiry,
+            expiry_caption,
             fill="black",
             font=caption_font,
         )
@@ -133,11 +154,12 @@ def render_inventory_label(
     # Batch: bottom of the right column, caption above it. Omitted if blank.
     if batch:
         batch_qr_y = content_y0 + content_height - secondary_size
-        batch_bbox = draw.textbbox((0, 0), batch, font=caption_font)
+        batch_caption = _fit_text(draw, batch, caption_font, right_caption_max_width)
+        batch_bbox = draw.textbbox((0, 0), batch_caption, font=caption_font)
         batch_caption_height = batch_bbox[3] - batch_bbox[1]
         draw.text(
             (right_x + gap, batch_qr_y - batch_caption_height - gap),
-            batch,
+            batch_caption,
             fill="black",
             font=caption_font,
         )
@@ -164,6 +186,7 @@ def render_inventory_label(
     # Middle column, top half: plain readable field list.
     middle_x = divider_left + gap * 2
     middle_right = divider_right - gap * 2
+    middle_max_width = middle_right - middle_x
     text_lines: list[tuple[str, object]] = []
     if name:
         text_lines.append((name, bold_font))
@@ -178,16 +201,18 @@ def render_inventory_label(
 
     line_y = content_y0 + gap
     for line, font in text_lines:
-        draw.text((middle_x, line_y), line, fill="black", font=font)
-        line_bbox = draw.textbbox((0, 0), line, font=font)
+        fitted_line = _fit_text(draw, line, font, middle_max_width)
+        draw.text((middle_x, line_y), fitted_line, fill="black", font=font)
+        line_bbox = draw.textbbox((0, 0), fitted_line, font=font)
         line_y += (line_bbox[3] - line_bbox[1]) + gap
 
     # Middle column, bottom half: Client name, centered.
     if client:
-        client_bbox = draw.textbbox((0, 0), client, font=caption_font)
+        fitted_client = _fit_text(draw, client, caption_font, middle_max_width)
+        client_bbox = draw.textbbox((0, 0), fitted_client, font=caption_font)
         client_width = client_bbox[2] - client_bbox[0]
         client_x = middle_x + max(0, (middle_right - middle_x - client_width) // 2)
-        draw.text((client_x, mid_split_y + gap * 2), client, fill="black", font=caption_font)
+        draw.text((client_x, mid_split_y + gap * 2), fitted_client, fill="black", font=caption_font)
 
     # Generation date: small text, bottom-right corner of the middle
     # column's bottom half (not the label's absolute corner, so it never

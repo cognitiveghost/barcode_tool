@@ -225,6 +225,21 @@ def test_print_checked_items_writes_a_timestamped_debug_pdf_next_to_the_audit_lo
     assert debug_pdfs[0].stat().st_size > 0
 
 
+def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
+    _app()
+    shared_folder = tmp_path / "not_yet_created" / "nested"
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(shared_folder)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    panel.print_checked_items(output_pdf_path=tmp_path / "explicit.pdf")
+
+    debug_pdfs = list(shared_folder.glob("inventory_label_preview_*.pdf"))
+    assert len(debug_pdfs) == 1
+    assert debug_pdfs[0].stat().st_size > 0
+    assert (shared_folder / "audit_log.csv").exists()
+
+
 def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_path(tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
