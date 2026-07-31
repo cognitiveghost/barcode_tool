@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw, ImageFont
 
-from app.core.barcode_engine import generate_barcode_image
+from app.core.barcode_engine import generate_barcode_image, generate_qr_image
 
 MM_PER_INCH = 25.4
 
@@ -43,5 +43,42 @@ def render_label(
     text_x = max((width_px - text_width) // 2, 0)
     text_y = barcode_img.height + 2
     draw.text((text_x, text_y), visible_text, fill="black", font=font)
+
+    return canvas
+
+
+def render_inventory_label(
+    sku_data: str,
+    text: str,
+    position_data: str,
+    width_mm: float,
+    height_mm: float,
+    dpi: int = 203,
+) -> Image.Image:
+    width_px = mm_to_px(width_mm, dpi)
+    height_px = mm_to_px(height_mm, dpi)
+    canvas = Image.new("RGB", (width_px, height_px), "white")
+    draw = ImageDraw.Draw(canvas)
+
+    top_height = round(height_px * 0.7)
+    sku_qr = generate_qr_image(sku_data)
+    sku_size = min(top_height - 4, width_px // 2)
+    sku_qr = sku_qr.resize((sku_size, sku_size))
+    canvas.paste(sku_qr, (0, 0))
+
+    text_font = ImageFont.load_default(size=font_size_for_height(top_height))
+    draw.multiline_text((sku_size + 6, 2), text, fill="black", font=text_font)
+
+    draw.line([(0, top_height), (width_px, top_height)], fill="black", width=1)
+
+    bottom_height = height_px - top_height
+    position_qr = generate_qr_image(position_data)
+    position_size = max(1, min(bottom_height - 4, width_px // 4))
+    position_qr = position_qr.resize((position_size, position_size))
+    position_y = top_height + max(0, (bottom_height - position_size) // 2)
+    canvas.paste(position_qr, (4, position_y))
+
+    caption_font = ImageFont.load_default(size=font_size_for_height(bottom_height))
+    draw.text((position_size + 10, top_height + 4), "shelf position", fill="black", font=caption_font)
 
     return canvas
