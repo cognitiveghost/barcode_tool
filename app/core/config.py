@@ -9,6 +9,7 @@ DEFAULT_SETTINGS = {
     "warehouses": [],
     "label_sizes": [
         {"name": "100x150mm", "width_mm": 100, "height_mm": 150},
+        {"name": "150x100mm", "width_mm": 150, "height_mm": 100},
         {"name": "68x38mm", "width_mm": 68, "height_mm": 38},
         {"name": "80x80mm", "width_mm": 80, "height_mm": 80},
     ],
