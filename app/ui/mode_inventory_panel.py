@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -23,11 +24,11 @@ from app.core.inventory_import import (
     InventoryItem,
     items_from_csv_rows,
 )
-from app.core.label_renderer import render_inventory_label
+from app.core.label_renderer import apply_orientation, render_inventory_label
 from app.core.print_service import print_labels
 from app.ui.csv_import_dialog import CsvImportDialog
 
-TABLE_COLUMNS = ["", "SKU", "Name", "Position", "Batch", "Expiry"]
+TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
 
 _DESCRIPTION_SKU_LIMIT = 5
 
@@ -54,6 +55,9 @@ class InventoryModePanel(QWidget):
         self.label_size_combo = QComboBox()
         self.refresh_from_settings(settings)
 
+        self.orientation_combo = QComboBox()
+        self.orientation_combo.addItems(["Landscape", "Portrait"])
+
         self.result_label = QLabel("0 items imported")
 
         self.import_csv_button = QPushButton("Import CSV...")
@@ -73,6 +77,7 @@ class InventoryModePanel(QWidget):
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
         form.addRow("Label size", self.label_size_combo)
+        form.addRow("Orientation", self.orientation_combo)
 
         select_buttons = QHBoxLayout()
         select_buttons.addWidget(self.select_all_button)
@@ -123,7 +128,7 @@ class InventoryModePanel(QWidget):
             check_item.setCheckState(Qt.CheckState.Checked)
             self.items_table.setItem(row_index, 0, check_item)
 
-            values = [item.sku, item.name, item.position_code, item.batch, item.expiry]
+            values = [item.sku, item.name, item.client, item.position_code, item.batch, item.expiry]
             for column, value in enumerate(values, start=1):
                 cell = QTableWidgetItem(value)
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -179,26 +184,31 @@ class InventoryModePanel(QWidget):
         if not warehouse_prefix:
             raise ValueError("No warehouse selected - add one in Settings first")
 
+        width_mm, height_mm = apply_orientation(
+            label_size["width_mm"], label_size["height_mm"], self.orientation_combo.currentText()
+        )
+        generated_date = datetime.now().strftime("%d%m%Y")
+
         images = []
         for item in checked:
-            text_lines = [item.name] if item.name else []
-            if item.batch:
-                text_lines.append(f"Batch {item.batch}")
-            if item.expiry:
-                text_lines.append(f"Exp {item.expiry}")
             image = render_inventory_label(
                 item.sku,
-                "\n".join(text_lines),
+                item.name,
+                item.client,
+                item.batch,
+                item.expiry,
+                item.position_code,
                 f"{warehouse_prefix}{item.position_code}",
-                width_mm=label_size["width_mm"],
-                height_mm=label_size["height_mm"],
+                generated_date,
+                width_mm=width_mm,
+                height_mm=height_mm,
             )
             images.append(image)
 
         print_labels(
             images,
-            width_mm=label_size["width_mm"],
-            height_mm=label_size["height_mm"],
+            width_mm=width_mm,
+            height_mm=height_mm,
             printer_name=self._settings.get("default_printer") or None,
             output_pdf_path=output_pdf_path,
         )

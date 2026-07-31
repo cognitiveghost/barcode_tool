@@ -1,10 +1,12 @@
 import csv
+import re
 
 import pytest
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.ui.mode_inventory_panel import InventoryModePanel, _describe_skus
+from app.ui.mode_inventory_panel import TABLE_COLUMNS, InventoryModePanel, _describe_skus
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
@@ -37,7 +39,7 @@ def test_data_cells_are_not_editable():
     panel = InventoryModePanel(SETTINGS)
     panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
 
-    for column in range(1, 6):
+    for column in range(1, len(TABLE_COLUMNS)):
         cell = panel.items_table.item(0, column)
         assert not (cell.flags() & Qt.ItemFlag.ItemIsEditable)
 
@@ -355,3 +357,93 @@ def test_print_button_click_without_items_shows_warning(monkeypatch):
     panel.print_button.click()
 
     assert len(warnings) == 1
+
+
+def test_client_column_populated_from_item():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A", "client": "Acme Corp"}])
+
+    client_column = TABLE_COLUMNS.index("Client")
+    assert panel.items_table.item(0, client_column).text() == "Acme Corp"
+
+
+def test_orientation_defaults_to_landscape():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    assert panel.orientation_combo.currentText() == "Landscape"
+
+
+def test_print_checked_items_uses_portrait_dimensions(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)  # 68x38mm size
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    panel.orientation_combo.setCurrentText("Portrait")
+
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.print_labels",
+        lambda *a, **k: calls.append(k),
+    )
+
+    panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
+
+    assert calls[0]["width_mm"] == 38
+    assert calls[0]["height_mm"] == 68
+
+
+def test_print_checked_items_passes_generated_date_in_ddmmyyyy_format(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    render_calls = []
+
+    def _fake_render(*args, **kwargs):
+        render_calls.append(args)
+        return Image.new("RGB", (10, 10))
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_inventory_label", _fake_render)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.print_labels", lambda *a, **k: None)
+
+    panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
+
+    generated_date = render_calls[0][7]
+    assert re.fullmatch(r"\d{8}", generated_date)
+
+
+def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items(
+        [
+            {
+                "sku": "SKU1",
+                "name": "Widget",
+                "client": "Acme Corp",
+                "batch": "4471",
+                "expiry": "2027-03",
+                "position_code": "H011A",
+            }
+        ]
+    )
+
+    render_calls = []
+
+    def _fake_render(*args, **kwargs):
+        render_calls.append(args)
+        return Image.new("RGB", (10, 10))
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_inventory_label", _fake_render)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.print_labels", lambda *a, **k: None)
+
+    panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
+
+    sku, name, client, batch, expiry, position_code, position_data = render_calls[0][:7]
+    assert (sku, name, client, batch, expiry, position_code) == (
+        "SKU1", "Widget", "Acme Corp", "4471", "2027-03", "H011A",
+    )
+    assert position_data == "C001H011A"  # warehouse prefix + position_code
