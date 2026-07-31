@@ -32,7 +32,7 @@ def test_items_from_csv_rows_builds_position_from_components():
 def test_items_from_csv_rows_optional_fields_default_empty():
     rows = [{"sku": "SKU1", "position_code": "H011A"}]
 
-    items, skipped = items_from_csv_rows(rows)
+    items, _skipped = items_from_csv_rows(rows)
 
     assert items[0].name == ""
     assert items[0].batch == ""

@@ -1,6 +1,11 @@
 from PIL import Image
 
-from app.core.label_renderer import font_size_for_height, mm_to_px, render_inventory_label, render_label
+from app.core.label_renderer import (
+    font_size_for_height,
+    mm_to_px,
+    render_inventory_label,
+    render_label,
+)
 
 
 def test_mm_to_px_at_203_dpi():
