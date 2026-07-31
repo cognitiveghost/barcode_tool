@@ -112,14 +112,16 @@ Locked in from mockup iteration. Reference canvas: 150×100mm (the built-in
   formula at every label size and orientation — confirmed this produces
   identical absolute QR sizes on both the 150×100 and 100×100 reference
   mockups, which is why no shape-specific branching is needed.
-- **Graceful degradation**: if fitting both Expiry and Batch QR chips at
-  their formula size would leave the middle text column narrower than
-  10mm, drop them one at a time (Batch first, then Expiry) until the
-  remaining layout is at least 10mm wide, or nothing's left to drop. SKU
-  and Position are never dropped. This is in addition to (not instead of)
-  the existing per-row rule that a chip is simply absent when its
-  underlying CSV value is empty. 10mm is a starting point, not a measured
-  legibility threshold — revisit if real small-label prints look wrong.
+- **Graceful degradation**: Expiry and Batch share one fixed-width column
+  (they stack vertically within it), so dropping only one of them never
+  frees any width — only dropping *both* does. If fitting the secondary
+  column at its formula width would leave the middle text column narrower
+  than 10mm, drop Expiry and Batch together, freeing the whole column. SKU
+  and Position are never dropped — they anchor their own corners, not a
+  shared column. This is in addition to (not instead of) the existing
+  per-row rule that a chip is simply absent when its underlying CSV value
+  is empty. 10mm is a starting point, not a measured legibility threshold —
+  revisit if real small-label prints look wrong.
 
 **New `render_inventory_label` signature** (breaking change from mode-2.2's
 version — call sites and tests are updated together):
