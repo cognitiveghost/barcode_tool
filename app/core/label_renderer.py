@@ -3,6 +3,7 @@ from __future__ import annotations
 from PIL import Image, ImageDraw, ImageFont
 
 from app.core.barcode_engine import generate_barcode_image, generate_qr_image
+from app.core.fonts import load_font
 
 MM_PER_INCH = 25.4
 
@@ -41,15 +42,22 @@ def render_label(
     barcode_img = barcode_img.resize(
         (round(barcode_img.width * scale), round(barcode_img.height * scale))
     )
-    barcode_x = (width_px - barcode_img.width) // 2
-    canvas.paste(barcode_img, (barcode_x, 0))
 
     draw = ImageDraw.Draw(canvas)
-    font = ImageFont.load_default(size=font_size_for_height(height_px))
+    font = load_font(font_size_for_height(height_px))
     text_bbox = draw.textbbox((0, 0), visible_text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+
+    gap = 2
+    block_height = barcode_img.height + gap + text_height
+    block_top = max((height_px - block_height) // 2, 0)
+
+    barcode_x = (width_px - barcode_img.width) // 2
+    canvas.paste(barcode_img, (barcode_x, block_top))
+
     text_x = max((width_px - text_width) // 2, 0)
-    text_y = barcode_img.height + 2
+    text_y = block_top + barcode_img.height + gap
     draw.text((text_x, text_y), visible_text, fill="black", font=font)
 
     return canvas

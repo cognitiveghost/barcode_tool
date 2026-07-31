@@ -1,5 +1,5 @@
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from app.core.label_renderer import (
     apply_orientation,
@@ -49,6 +49,24 @@ def test_render_label_visible_text_differs_from_barcode_data_changes_output():
     img_with_prefix_text = render_label("C001H029A", "C001H029A", width_mm=68, height_mm=38)
     img_without_prefix_text = render_label("C001H029A", "H029A", width_mm=68, height_mm=38)
     assert img_with_prefix_text.tobytes() != img_without_prefix_text.tobytes()
+
+
+def test_render_label_renders_cyrillic_text_without_error():
+    img = render_label("C001H029A", "Полка Н029А", width_mm=68, height_mm=38)
+    assert isinstance(img, Image.Image)
+
+
+def test_render_label_centers_content_vertically_on_a_tall_canvas():
+    img = render_label("C001H029A", "H029A", width_mm=38, height_mm=90)
+    # On a canvas much taller than the barcode+text block needs, centering
+    # should leave roughly equal white margin above and below the content.
+    # Checked empirically: pinned-to-top code gives top=8/bottom=497 here
+    # (way off); centered code gives top=263/bottom=245 (close).
+    bg = Image.new("RGB", img.size, "white")
+    bbox = ImageChops.difference(img, bg).getbbox()
+    top_margin = bbox[1]
+    bottom_margin = img.height - bbox[3]
+    assert abs(top_margin - bottom_margin) < img.height * 0.1
 
 
 def test_render_inventory_label_returns_image_of_expected_size():
