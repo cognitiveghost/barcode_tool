@@ -140,12 +140,14 @@ def render_inventory_label(
         line_y += (line_bbox[3] - line_bbox[1]) + 4
 
     # Generation date: small, bottom-right corner.
+    # Positioned from the anchor-relative bbox edges (date_bbox[2]/[3]), not a
+    # width/height computed from bbox[0]/[1] - those aren't 0 for every font,
+    # and subtracting a plain height from the canvas edge let the glyphs'
+    # true bottom edge run past height_px (clipped descenders on real fonts).
     date_font = load_font(max(8, caption_size - 2))
     date_bbox = draw.textbbox((0, 0), generated_date, font=date_font)
-    date_width = date_bbox[2] - date_bbox[0]
-    date_height = date_bbox[3] - date_bbox[1]
     draw.text(
-        (width_px - date_width - 2, height_px - date_height - 2),
+        (width_px - date_bbox[2] - 2, height_px - date_bbox[3] - 2),
         generated_date,
         fill="black",
         font=date_font,
