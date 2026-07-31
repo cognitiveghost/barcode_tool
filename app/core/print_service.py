@@ -9,6 +9,12 @@ from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPixmap
 from PySide6.QtPrintSupport import QPrinter
 
 
+def _page_orientation(width_mm: float, height_mm: float) -> QPageLayout.Orientation:
+    if width_mm > height_mm:
+        return QPageLayout.Orientation.Landscape
+    return QPageLayout.Orientation.Portrait
+
+
 def print_labels(
     images: list[Image.Image],
     width_mm: float,
@@ -18,6 +24,7 @@ def print_labels(
 ) -> None:
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setPageSize(QPageSize(QSizeF(width_mm, height_mm), QPageSize.Unit.Millimeter))
+    printer.setPageOrientation(_page_orientation(width_mm, height_mm))
     printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
 
     if output_pdf_path is not None:
