@@ -24,11 +24,14 @@ from app.core.inventory_import import (
     InventoryItem,
     items_from_csv_rows,
 )
-from app.core.label_renderer import apply_orientation, render_inventory_label
+from app.core.label_renderer import render_inventory_label
 from app.core.print_service import print_labels
 from app.ui.csv_import_dialog import CsvImportDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
+
+INVENTORY_LABEL_WIDTH_MM = 150
+INVENTORY_LABEL_HEIGHT_MM = 100
 
 _DESCRIPTION_SKU_LIMIT = 5
 
@@ -52,11 +55,7 @@ class InventoryModePanel(QWidget):
         self.items: list[InventoryItem] = []
 
         self.warehouse_combo = QComboBox()
-        self.label_size_combo = QComboBox()
         self.refresh_from_settings(settings)
-
-        self.orientation_combo = QComboBox()
-        self.orientation_combo.addItems(["Landscape", "Portrait"])
 
         self.result_label = QLabel("0 items imported")
 
@@ -76,8 +75,6 @@ class InventoryModePanel(QWidget):
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
-        form.addRow("Label size", self.label_size_combo)
-        form.addRow("Orientation", self.orientation_combo)
 
         select_buttons = QHBoxLayout()
         select_buttons.addWidget(self.select_all_button)
@@ -97,10 +94,6 @@ class InventoryModePanel(QWidget):
         self.warehouse_combo.clear()
         for warehouse in settings.get("warehouses", []):
             self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
-
-        self.label_size_combo.clear()
-        for size in settings.get("label_sizes", []):
-            self.label_size_combo.addItem(size["name"], size)
 
     def load_items(self, rows: list[dict[str, str]]) -> list[InventoryItem]:
         items, skipped_rows = items_from_csv_rows(rows)
@@ -176,17 +169,10 @@ class InventoryModePanel(QWidget):
         if not checked:
             raise ValueError("Nothing to print - import a CSV and check at least one row")
 
-        label_size = self.label_size_combo.currentData()
-        if label_size is None:
-            raise ValueError("No label size selected - add one in Settings first")
-
         warehouse_prefix = self.warehouse_combo.currentData()
         if not warehouse_prefix:
             raise ValueError("No warehouse selected - add one in Settings first")
 
-        width_mm, height_mm = apply_orientation(
-            label_size["width_mm"], label_size["height_mm"], self.orientation_combo.currentText()
-        )
         generated_date = datetime.now(timezone.utc).astimezone().strftime("%d%m%Y")
 
         images = []
@@ -200,20 +186,30 @@ class InventoryModePanel(QWidget):
                 item.position_code,
                 f"{warehouse_prefix}{item.position_code}",
                 generated_date,
-                width_mm=width_mm,
-                height_mm=height_mm,
+                width_mm=INVENTORY_LABEL_WIDTH_MM,
+                height_mm=INVENTORY_LABEL_HEIGHT_MM,
             )
             images.append(image)
 
         print_labels(
             images,
-            width_mm=width_mm,
-            height_mm=height_mm,
+            width_mm=INVENTORY_LABEL_WIDTH_MM,
+            height_mm=INVENTORY_LABEL_HEIGHT_MM,
             printer_name=self._settings.get("default_printer") or None,
             output_pdf_path=output_pdf_path,
         )
 
         shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
+        debug_pdf_path = (
+            Path(shared_folder) / f"inventory_label_preview_{datetime.now():%Y%m%d_%H%M%S}.pdf"
+        )
+        print_labels(
+            images,
+            width_mm=INVENTORY_LABEL_WIDTH_MM,
+            height_mm=INVENTORY_LABEL_HEIGHT_MM,
+            output_pdf_path=debug_pdf_path,
+        )
+
         log_path = Path(shared_folder) / "audit_log.csv"
         description = _describe_skus([item.sku for item in checked])
         try:

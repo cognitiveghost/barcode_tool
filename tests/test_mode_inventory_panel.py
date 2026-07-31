@@ -14,7 +14,6 @@ from app.ui.mode_inventory_panel import (
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
-    "label_sizes": [{"name": "68x38mm", "width_mm": 68, "height_mm": 38}],
 }
 
 
@@ -180,17 +179,10 @@ def test_refresh_from_settings_rebuilds_combos():
     _app()
     panel = InventoryModePanel(SETTINGS)
 
-    panel.refresh_from_settings(
-        {
-            "warehouses": [{"name": "Second", "prefix": "C002"}],
-            "label_sizes": [{"name": "80x80mm", "width_mm": 80, "height_mm": 80}],
-        }
-    )
+    panel.refresh_from_settings({"warehouses": [{"name": "Second", "prefix": "C002"}]})
 
     warehouse_names = [panel.warehouse_combo.itemText(i) for i in range(panel.warehouse_combo.count())]
-    label_size_names = [panel.label_size_combo.itemText(i) for i in range(panel.label_size_combo.count())]
     assert warehouse_names == ["Second"]
-    assert label_size_names == ["80x80mm"]
 
 
 def test_print_checked_items_writes_pdf_and_log(tmp_path):
@@ -218,6 +210,31 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
     rows = list(csv.reader(log_path.read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 2  # header + one entry
     assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2"]
+
+
+def test_print_checked_items_writes_a_timestamped_debug_pdf_next_to_the_audit_log(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    panel.print_checked_items(output_pdf_path=tmp_path / "explicit.pdf")
+
+    debug_pdfs = list(tmp_path.glob("inventory_label_preview_*.pdf"))
+    assert len(debug_pdfs) == 1
+    assert debug_pdfs[0].stat().st_size > 0
+
+
+def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_path(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    panel.print_checked_items()
+
+    debug_pdfs = list(tmp_path.glob("inventory_label_preview_*.pdf"))
+    assert len(debug_pdfs) == 1
 
 
 def test_print_checked_items_skips_unchecked_rows(tmp_path):
@@ -250,19 +267,9 @@ def test_print_checked_items_raises_when_nothing_checked(tmp_path):
         panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
 
-def test_print_checked_items_raises_without_label_size():
-    _app()
-    settings = {"warehouses": SETTINGS["warehouses"], "label_sizes": []}
-    panel = InventoryModePanel(settings)
-    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
-
-    with pytest.raises(ValueError):
-        panel.print_checked_items()
-
-
 def test_print_checked_items_raises_without_warehouse():
     _app()
-    settings = {"warehouses": [], "label_sizes": SETTINGS["label_sizes"]}
+    settings = {"warehouses": []}
     panel = InventoryModePanel(settings)
     panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
 
@@ -272,7 +279,7 @@ def test_print_checked_items_raises_without_warehouse():
 
 def test_print_button_click_without_warehouse_shows_warning(monkeypatch):
     _app()
-    settings = {"warehouses": [], "label_sizes": SETTINGS["label_sizes"]}
+    settings = {"warehouses": []}
     panel = InventoryModePanel(settings)
     panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
     warnings = []
@@ -328,7 +335,7 @@ def test_audit_log_failure_reports_distinct_warning_after_successful_print(monke
 
     panel.print_button.click()
 
-    assert print_calls == [True]
+    assert print_calls == [True, True]
     assert warnings[0][1] == "Audit log failed"
 
 
@@ -370,31 +377,6 @@ def test_client_column_populated_from_item():
 
     client_column = TABLE_COLUMNS.index("Client")
     assert panel.items_table.item(0, client_column).text() == "Acme Corp"
-
-
-def test_orientation_defaults_to_landscape():
-    _app()
-    panel = InventoryModePanel(SETTINGS)
-    assert panel.orientation_combo.currentText() == "Landscape"
-
-
-def test_print_checked_items_uses_portrait_dimensions(monkeypatch, tmp_path):
-    _app()
-    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
-    panel = InventoryModePanel(settings)  # 68x38mm size
-    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
-    panel.orientation_combo.setCurrentText("Portrait")
-
-    calls = []
-    monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.print_labels",
-        lambda *a, **k: calls.append(k),
-    )
-
-    panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
-
-    assert calls[0]["width_mm"] == 38
-    assert calls[0]["height_mm"] == 68
 
 
 def test_print_checked_items_passes_generated_date_in_ddmmyyyy_format(monkeypatch, tmp_path):
