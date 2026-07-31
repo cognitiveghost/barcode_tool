@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 NUMBER_WIDTH = 3
 NUMBER_MAX = 10**NUMBER_WIDTH - 1
 
@@ -73,3 +75,18 @@ def codes_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[str], list[int
         except ValueError:
             skipped_rows.append(row_number)
     return codes, skipped_rows
+
+
+_POSITION_CODE_PATTERN = re.compile(r"^[A-Za-z]\d+[A-Za-z]?$")
+
+
+def parse_position_code(code: str) -> tuple[str, str, str]:
+    if not _POSITION_CODE_PATTERN.match(code):
+        raise ValueError(
+            f"position code {code!r} must be a letter, digits, and an "
+            "optional trailing letter (e.g. H011A)"
+        )
+    corridor = code[0]
+    if code[-1].isalpha():
+        return corridor, code[1:-1], code[-1]
+    return corridor, code[1:], ""

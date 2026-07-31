@@ -4,6 +4,7 @@ from app.core.position_generator import (
     codes_from_csv_rows,
     format_position_code,
     generate_position_codes,
+    parse_position_code,
 )
 
 
@@ -128,3 +129,26 @@ def test_codes_from_csv_rows_handles_missing_keys():
 
     assert codes == ["H029"]
     assert skipped == []
+
+
+def test_parse_position_code_with_height():
+    assert parse_position_code("H011A") == ("H", "011", "A")
+
+
+def test_parse_position_code_without_height():
+    assert parse_position_code("H011") == ("H", "011", "")
+
+
+def test_parse_position_code_rejects_missing_number():
+    with pytest.raises(ValueError):
+        parse_position_code("H")
+
+
+def test_parse_position_code_rejects_multi_letter_corridor():
+    with pytest.raises(ValueError):
+        parse_position_code("HH011A")
+
+
+def test_parse_position_code_rejects_malformed_string():
+    with pytest.raises(ValueError):
+        parse_position_code("not-a-position")
