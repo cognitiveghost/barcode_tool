@@ -9,6 +9,12 @@ from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPixmap
 from PySide6.QtPrintSupport import QPrinter
 
 
+def _page_orientation(width_mm: float, height_mm: float) -> QPageLayout.Orientation:
+    if width_mm > height_mm:
+        return QPageLayout.Orientation.Landscape
+    return QPageLayout.Orientation.Portrait
+
+
 def print_labels(
     images: list[Image.Image],
     width_mm: float,
@@ -16,8 +22,19 @@ def print_labels(
     printer_name: str | None = None,
     output_pdf_path: Path | None = None,
 ) -> None:
+    orientation = _page_orientation(width_mm, height_mm)
+    # QPageSize's custom-size definition is always canonical/portrait (the
+    # smaller side first); setPageOrientation does the actual landscape
+    # rotation. Passing an already-wide QSizeF here *and* orientation makes
+    # Qt apply the flip twice, silently handing the page back as portrait.
+    canonical_size = (
+        QSizeF(height_mm, width_mm)
+        if orientation == QPageLayout.Orientation.Landscape
+        else QSizeF(width_mm, height_mm)
+    )
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setPageSize(QPageSize(QSizeF(width_mm, height_mm), QPageSize.Unit.Millimeter))
+    printer.setPageSize(QPageSize(canonical_size, QPageSize.Unit.Millimeter))
+    printer.setPageOrientation(orientation)
     printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
 
     if output_pdf_path is not None:

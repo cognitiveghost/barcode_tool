@@ -1,6 +1,6 @@
 import csv
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QHeaderView
 
 from app.ui.csv_import_dialog import CsvImportDialog
 
@@ -84,6 +84,24 @@ def test_preview_table_shows_mapped_rows(tmp_path):
     assert dialog.preview_table.rowCount() == 2
     assert dialog.preview_table.item(0, 0).text() == "H"
     assert dialog.preview_table.item(0, 1).text() == "029"
+
+
+def test_dialog_has_a_bigger_default_size():
+    _app()
+    dialog = CsvImportDialog(FIELDS)
+
+    assert dialog.size().width() >= 900
+    assert dialog.size().height() >= 600
+
+
+def test_preview_table_columns_stretch_to_fill_width():
+    _app()
+    dialog = CsvImportDialog(FIELDS)
+
+    assert (
+        dialog.preview_table.horizontalHeader().sectionResizeMode(0)
+        == QHeaderView.ResizeMode.Stretch
+    )
 
 
 def test_loading_a_second_file_replaces_column_choices(tmp_path):

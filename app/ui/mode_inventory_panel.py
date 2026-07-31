@@ -1,0 +1,224 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.core.audit_log import append_print_log
+from app.core.config import default_settings_path
+from app.core.inventory_import import (
+    INVENTORY_CSV_FIELDS,
+    InventoryItem,
+    items_from_csv_rows,
+)
+from app.core.label_renderer import render_inventory_label
+from app.core.print_service import print_labels
+from app.ui.csv_import_dialog import CsvImportDialog
+
+TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
+
+INVENTORY_LABEL_WIDTH_MM = 150
+INVENTORY_LABEL_HEIGHT_MM = 100
+
+_DESCRIPTION_SKU_LIMIT = 5
+
+
+class AuditLogError(OSError):
+    """Raised when labels printed successfully but the audit log entry could not be written."""
+
+
+def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
+    unique_skus = list(dict.fromkeys(skus))
+    description = ", ".join(unique_skus[:limit])
+    remaining = len(unique_skus) - limit
+    if remaining > 0:
+        description += f" +{remaining} more"
+    return description
+
+
+class InventoryModePanel(QWidget):
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        self.items: list[InventoryItem] = []
+
+        self.warehouse_combo = QComboBox()
+        self.refresh_from_settings(settings)
+
+        self.result_label = QLabel("0 items imported")
+
+        self.import_csv_button = QPushButton("Import CSV...")
+        self.import_csv_button.clicked.connect(self._on_import_csv_clicked)
+
+        self.select_all_button = QPushButton("Select all")
+        self.select_all_button.clicked.connect(lambda: self._set_all_checked(True))
+        self.select_none_button = QPushButton("Select none")
+        self.select_none_button.clicked.connect(lambda: self._set_all_checked(False))
+
+        self.items_table = QTableWidget(0, len(TABLE_COLUMNS))
+        self.items_table.setHorizontalHeaderLabels(TABLE_COLUMNS)
+
+        self.print_button = QPushButton("Print")
+        self.print_button.clicked.connect(self._on_print_clicked)
+
+        form = QFormLayout()
+        form.addRow("Warehouse", self.warehouse_combo)
+
+        select_buttons = QHBoxLayout()
+        select_buttons.addWidget(self.select_all_button)
+        select_buttons.addWidget(self.select_none_button)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(self.import_csv_button)
+        layout.addWidget(self.result_label)
+        layout.addLayout(select_buttons)
+        layout.addWidget(self.items_table)
+        layout.addWidget(self.print_button)
+
+    def refresh_from_settings(self, settings: dict) -> None:
+        self._settings = settings
+
+        self.warehouse_combo.clear()
+        for warehouse in settings.get("warehouses", []):
+            self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
+
+    def load_items(self, rows: list[dict[str, str]]) -> list[InventoryItem]:
+        items, skipped_rows = items_from_csv_rows(rows)
+        if not items:
+            raise ValueError("No valid inventory rows found in the imported file")
+
+        self.items = items
+        self._populate_table(items)
+
+        item_unit = "item" if len(items) == 1 else "items"
+        if skipped_rows:
+            row_unit = "row" if len(skipped_rows) == 1 else "rows"
+            self.result_label.setText(
+                f"{len(items)} {item_unit} imported ({len(skipped_rows)} {row_unit} skipped)"
+            )
+        else:
+            self.result_label.setText(f"{len(items)} {item_unit} imported")
+        return items
+
+    def _populate_table(self, items: list[InventoryItem]) -> None:
+        self.items_table.setRowCount(len(items))
+        for row_index, item in enumerate(items):
+            check_item = QTableWidgetItem()
+            check_item.setFlags(check_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            check_item.setCheckState(Qt.CheckState.Checked)
+            self.items_table.setItem(row_index, 0, check_item)
+
+            values = [item.sku, item.name, item.client, item.position_code, item.batch, item.expiry]
+            for column, value in enumerate(values, start=1):
+                cell = QTableWidgetItem(value)
+                cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.items_table.setItem(row_index, column, cell)
+
+    def _set_all_checked(self, checked: bool) -> None:
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for row in range(self.items_table.rowCount()):
+            check_item = self.items_table.item(row, 0)
+            if check_item is not None:
+                check_item.setCheckState(state)
+
+    def checked_items(self) -> list[InventoryItem]:
+        checked = []
+        for row in range(self.items_table.rowCount()):
+            check_item = self.items_table.item(row, 0)
+            if check_item is not None and check_item.checkState() == Qt.CheckState.Checked:
+                checked.append(self.items[row])
+        return checked
+
+    def _on_import_csv_clicked(self) -> None:
+        dialog = CsvImportDialog(INVENTORY_CSV_FIELDS, parent=self)
+        if not dialog.exec():
+            return
+        try:
+            self.load_items(dialog.get_mapped_rows())
+        except ValueError as error:
+            QMessageBox.warning(self, "Import failed", str(error))
+
+    def _on_print_clicked(self) -> None:
+        try:
+            self.print_checked_items()
+        except AuditLogError as error:
+            QMessageBox.warning(
+                self,
+                "Audit log failed",
+                f"Labels printed, but the audit log entry failed: {error}\n"
+                "Do not reprint this batch.",
+            )
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+
+    def print_checked_items(self, output_pdf_path: Path | None = None) -> None:
+        checked = self.checked_items()
+        if not checked:
+            raise ValueError("Nothing to print - import a CSV and check at least one row")
+
+        warehouse_prefix = self.warehouse_combo.currentData()
+        if not warehouse_prefix:
+            raise ValueError("No warehouse selected - add one in Settings first")
+
+        generated_date = datetime.now(timezone.utc).astimezone().strftime("%d%m%Y")
+
+        images = []
+        for item in checked:
+            image = render_inventory_label(
+                item.sku,
+                item.name,
+                item.client,
+                item.batch,
+                item.expiry,
+                item.position_code,
+                f"{warehouse_prefix}{item.position_code}",
+                generated_date,
+                width_mm=INVENTORY_LABEL_WIDTH_MM,
+                height_mm=INVENTORY_LABEL_HEIGHT_MM,
+            )
+            images.append(image)
+
+        print_labels(
+            images,
+            width_mm=INVENTORY_LABEL_WIDTH_MM,
+            height_mm=INVENTORY_LABEL_HEIGHT_MM,
+            printer_name=self._settings.get("default_printer") or None,
+            output_pdf_path=output_pdf_path,
+        )
+
+        shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
+        Path(shared_folder).mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).astimezone()
+        debug_pdf_path = Path(shared_folder) / f"inventory_label_preview_{now:%Y%m%d_%H%M%S}.pdf"
+        print_labels(
+            images,
+            width_mm=INVENTORY_LABEL_WIDTH_MM,
+            height_mm=INVENTORY_LABEL_HEIGHT_MM,
+            output_pdf_path=debug_pdf_path,
+        )
+
+        log_path = Path(shared_folder) / "audit_log.csv"
+        description = _describe_skus([item.sku for item in checked])
+        try:
+            append_print_log(
+                log_path,
+                mode="inventory",
+                warehouse_prefix=warehouse_prefix,
+                count=len(checked),
+                description=description,
+            )
+        except OSError as error:
+            raise AuditLogError(str(error)) from error

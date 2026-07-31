@@ -122,14 +122,16 @@ message before it reaches rendering/printing.
 
 ## 6. Mode 2.2 — Inventory from CSV
 
-User imports a CSV (columns typically SKU, Name, Position, optionally
-Batch and Expiry) via the shared interactive column-mapping component. Each
-row becomes one label containing:
-- Barcode of the SKU (Code128)
-- Text: product name, batch/expiry when present
-- Barcode of the position, using the same hidden-warehouse-prefix rule as
-  Mode 2.1 (the warehouse is selected once for the whole import, same as
-  2.1's warehouse picker)
+Superseded by `docs/superpowers/specs/2026-07-31-mode-2-2-inventory-design.md`,
+written when this phase was brainstormed in detail (SKU/position codes are
+QR rather than Code128, and a print-selection step was added for SKUs with
+multiple positions). Summary, unchanged from here: user imports a CSV
+(columns typically SKU, Name, Position, optionally Batch and Expiry) via the
+shared interactive column-mapping component; each row becomes one label
+with a SKU code, product text (name, batch/expiry when present), and a
+position code using the same hidden-warehouse-prefix rule as Mode 2.1 (the
+warehouse is selected once for the whole import, same as 2.1's warehouse
+picker).
 
 ## 7. Mode 2.3 — Product barcode + text
 

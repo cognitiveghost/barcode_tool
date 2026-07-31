@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import csv
+import io
 from pathlib import Path
 
 
 def read_csv(path: Path) -> tuple[list[str], list[list[str]]]:
-    with path.open("r", newline="", encoding="utf-8") as f:
-        all_rows = list(csv.reader(f))
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        text = path.read_text(encoding="cp1251")
+    all_rows = list(csv.reader(io.StringIO(text)))
     if not all_rows:
         return [], []
     return all_rows[0], all_rows[1:]
