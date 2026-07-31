@@ -87,7 +87,7 @@ def test_read_csv_decodes_cp1251_cyrillic_content(tmp_path):
 
 def test_read_csv_strips_utf8_bom(tmp_path):
     path = tmp_path / "bom.csv"
-    path.write_bytes("﻿sku,client\r\nSKU1,Acme\r\n".encode("utf-8"))
+    path.write_bytes("﻿sku,client\r\nSKU1,Acme\r\n".encode())
 
     header, rows = read_csv(path)
 
