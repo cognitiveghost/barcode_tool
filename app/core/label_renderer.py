@@ -63,7 +63,7 @@ def render_label(
     return canvas
 
 
-_MIN_MIDDLE_WIDTH_MM = 10
+_MARGIN_MM = 5
 
 
 def render_inventory_label(
@@ -84,70 +84,118 @@ def render_inventory_label(
     canvas = Image.new("RGB", (width_px, height_px), "white")
     draw = ImageDraw.Draw(canvas)
 
-    short_side = min(width_px, height_px)
-    sku_size = max(1, round(short_side * 0.5))
-    secondary_size = max(1, round(short_side * 0.25))
-    min_middle_width_px = mm_to_px(_MIN_MIDDLE_WIDTH_MM, dpi)
+    margin = mm_to_px(_MARGIN_MM, dpi)
+    content_x0, content_y0 = margin, margin
+    content_width = width_px - 2 * margin
+    content_height = height_px - 2 * margin
 
-    secondary_chips = [value for value in (expiry, batch) if value]
-    if secondary_chips and (width_px - sku_size - secondary_size) < min_middle_width_px:
-        secondary_chips = []
+    primary_size = round(content_height * 0.42)   # SKU / Position QR side
+    secondary_size = round(content_height * 0.30)  # Expiry / Batch QR side
+    gap = max(2, round(content_height * 0.02))
 
-    bold_size = font_size_for_height(sku_size)
-    caption_size = font_size_for_height(secondary_size)
-    bold_font = load_font(bold_size, bold=True)
-    caption_font = load_font(caption_size)
+    bold_font = load_font(font_size_for_height(primary_size), bold=True)
+    caption_font = load_font(font_size_for_height(secondary_size))
 
-    # SKU: top-left corner, bold caption underneath.
-    sku_qr = generate_qr_image(sku).resize((sku_size, sku_size))
-    canvas.paste(sku_qr, (0, 0))
-    draw.text((0, sku_size + 2), sku, fill="black", font=bold_font)
+    left_x = content_x0
+    right_x = content_x0 + content_width - secondary_size
+    divider_left = content_x0 + primary_size
+    divider_right = right_x
 
-    # Expiry then Batch: stacked top-right corner, each captioned underneath.
-    right_x = width_px - secondary_size
-    chip_y = 0
-    for value in secondary_chips:
-        chip_qr = generate_qr_image(value).resize((secondary_size, secondary_size))
-        canvas.paste(chip_qr, (right_x, chip_y))
-        draw.text((right_x, chip_y + secondary_size + 2), value, fill="black", font=caption_font)
-        chip_y += secondary_size + caption_size + 6
+    # SKU: top of the left column, bold caption below it.
+    sku_qr = generate_qr_image(sku).resize((primary_size, primary_size))
+    canvas.paste(sku_qr, (left_x, content_y0))
+    draw.text((left_x, content_y0 + primary_size + gap), sku, fill="black", font=bold_font)
 
-    # Position: bottom-left corner, bold caption beside it (to the right).
-    position_y = height_px - secondary_size
-    position_qr = generate_qr_image(position_data).resize((secondary_size, secondary_size))
-    canvas.paste(position_qr, (0, position_y))
-    caption_bbox = draw.textbbox((0, 0), position_code, font=bold_font)
-    caption_height = caption_bbox[3] - caption_bbox[1]
+    # Position: bottom of the left column, bold caption above it.
+    position_qr_y = content_y0 + content_height - primary_size
+    position_bbox = draw.textbbox((0, 0), position_code, font=bold_font)
+    position_caption_height = position_bbox[3] - position_bbox[1]
     draw.text(
-        (secondary_size + 6, position_y + max(0, (secondary_size - caption_height) // 2)),
+        (left_x, position_qr_y - position_caption_height - gap),
         position_code,
         fill="black",
         font=bold_font,
     )
+    position_qr = generate_qr_image(position_data).resize((primary_size, primary_size))
+    canvas.paste(position_qr, (left_x, position_qr_y))
 
-    # Middle column: Product name / Client / Exp+Batch / SKU, from upper-middle.
-    middle_x = sku_size + 6
-    exp_batch_parts = [
-        part
-        for part in (f"Exp {expiry}" if expiry else "", f"Batch {batch}" if batch else "")
-        if part
-    ]
-    text_lines = [line for line in (name, client, " · ".join(exp_batch_parts), sku) if line]
-    line_y = 4
-    for line in text_lines:
-        draw.text((middle_x, line_y), line, fill="black", font=caption_font)
-        line_bbox = draw.textbbox((0, 0), line, font=caption_font)
-        line_y += (line_bbox[3] - line_bbox[1]) + 4
+    # Expiry: top of the right column, caption below it. Omitted if blank.
+    if expiry:
+        expiry_qr = generate_qr_image(expiry).resize((secondary_size, secondary_size))
+        canvas.paste(expiry_qr, (right_x, content_y0))
+        draw.text(
+            (right_x + gap, content_y0 + secondary_size + gap),
+            expiry,
+            fill="black",
+            font=caption_font,
+        )
 
-    # Generation date: small, bottom-right corner.
-    # Positioned from the anchor-relative bbox edges (date_bbox[2]/[3]), not a
-    # width/height computed from bbox[0]/[1] - those aren't 0 for every font,
-    # and subtracting a plain height from the canvas edge let the glyphs'
-    # true bottom edge run past height_px (clipped descenders on real fonts).
-    date_font = load_font(max(8, caption_size - 2))
+    # Batch: bottom of the right column, caption above it. Omitted if blank.
+    if batch:
+        batch_qr_y = content_y0 + content_height - secondary_size
+        batch_bbox = draw.textbbox((0, 0), batch, font=caption_font)
+        batch_caption_height = batch_bbox[3] - batch_bbox[1]
+        draw.text(
+            (right_x + gap, batch_qr_y - batch_caption_height - gap),
+            batch,
+            fill="black",
+            font=caption_font,
+        )
+        batch_qr = generate_qr_image(batch).resize((secondary_size, secondary_size))
+        canvas.paste(batch_qr, (right_x, batch_qr_y))
+
+    # Divider lines: two verticals for the full content height, one
+    # horizontal splitting the middle column only (not the QR columns).
+    divider_width = 3
+    mid_split_y = content_y0 + content_height // 2
+    draw.line(
+        [(divider_left, content_y0), (divider_left, content_y0 + content_height)],
+        fill="black", width=divider_width,
+    )
+    draw.line(
+        [(divider_right, content_y0), (divider_right, content_y0 + content_height)],
+        fill="black", width=divider_width,
+    )
+    draw.line(
+        [(divider_left, mid_split_y), (divider_right, mid_split_y)],
+        fill="black", width=divider_width,
+    )
+
+    # Middle column, top half: plain readable field list.
+    middle_x = divider_left + gap * 2
+    middle_right = divider_right - gap * 2
+    text_lines: list[tuple[str, object]] = []
+    if name:
+        text_lines.append((name, bold_font))
+    for label, value in (
+        ("Expiry", expiry),
+        ("Batch", batch),
+        ("SKU", sku),
+        ("Position", position_code),
+    ):
+        if value:
+            text_lines.append((f"{label}: {value}", caption_font))
+
+    line_y = content_y0 + gap
+    for line, font in text_lines:
+        draw.text((middle_x, line_y), line, fill="black", font=font)
+        line_bbox = draw.textbbox((0, 0), line, font=font)
+        line_y += (line_bbox[3] - line_bbox[1]) + gap
+
+    # Middle column, bottom half: Client name, centered.
+    if client:
+        client_bbox = draw.textbbox((0, 0), client, font=caption_font)
+        client_width = client_bbox[2] - client_bbox[0]
+        client_x = middle_x + max(0, (middle_right - middle_x - client_width) // 2)
+        draw.text((client_x, mid_split_y + gap * 2), client, fill="black", font=caption_font)
+
+    # Generation date: small text, bottom-right corner of the middle
+    # column's bottom half (not the label's absolute corner, so it never
+    # collides with the Batch QR in the right column).
+    date_font = load_font(max(8, font_size_for_height(secondary_size) - 2))
     date_bbox = draw.textbbox((0, 0), generated_date, font=date_font)
     draw.text(
-        (width_px - date_bbox[2] - 2, height_px - date_bbox[3] - 2),
+        (middle_right - date_bbox[2] - 2, content_y0 + content_height - date_bbox[3] - 2),
         generated_date,
         fill="black",
         font=date_font,
