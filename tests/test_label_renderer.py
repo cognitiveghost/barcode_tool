@@ -2,6 +2,7 @@ import pytest
 from PIL import Image
 
 from app.core.label_renderer import (
+    apply_orientation,
     font_size_for_height,
     mm_to_px,
     render_inventory_label,
@@ -15,6 +16,27 @@ def test_mm_to_px_at_203_dpi():
 
 def test_font_size_scales_with_label_height():
     assert font_size_for_height(1198) > font_size_for_height(304) > font_size_for_height(100)
+
+
+def test_apply_orientation_landscape_swaps_a_tall_size():
+    assert apply_orientation(68, 100, "Landscape") == (100, 68)
+
+
+def test_apply_orientation_portrait_swaps_a_wide_size():
+    assert apply_orientation(150, 100, "Portrait") == (100, 150)
+
+
+def test_apply_orientation_landscape_is_noop_when_already_wide():
+    assert apply_orientation(150, 100, "Landscape") == (150, 100)
+
+
+def test_apply_orientation_portrait_is_noop_when_already_tall():
+    assert apply_orientation(100, 150, "Portrait") == (100, 150)
+
+
+def test_apply_orientation_square_is_noop_either_way():
+    assert apply_orientation(80, 80, "Landscape") == (80, 80)
+    assert apply_orientation(80, 80, "Portrait") == (80, 80)
 
 
 def test_render_label_returns_image_of_expected_size():

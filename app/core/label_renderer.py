@@ -15,6 +15,14 @@ def font_size_for_height(height_px: int) -> int:
     return max(10, min(60, round(height_px * 0.08)))
 
 
+def apply_orientation(width_mm: float, height_mm: float, orientation: str) -> tuple[float, float]:
+    if orientation == "Portrait" and width_mm > height_mm:
+        return height_mm, width_mm
+    if orientation == "Landscape" and height_mm > width_mm:
+        return height_mm, width_mm
+    return width_mm, height_mm
+
+
 def render_label(
     barcode_data: str,
     visible_text: str,
