@@ -1,6 +1,7 @@
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from app.core.label_renderer import mm_to_px
 from app.ui.mode_positions_panel import PositionsModePanel
 
 SETTINGS = {
@@ -11,6 +12,25 @@ SETTINGS = {
 
 def _app():
     return QApplication.instance() or QApplication([])
+
+
+def test_orientation_defaults_to_landscape():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    assert panel.orientation_combo.currentText() == "Landscape"
+
+
+def test_portrait_orientation_swaps_generated_label_dimensions():
+    _app()
+    panel = PositionsModePanel(SETTINGS)  # 68x38mm size
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.orientation_combo.setCurrentText("Portrait")
+
+    results = panel.generate()
+
+    _, image = results[0]
+    assert image.size == (mm_to_px(38), mm_to_px(68))
 
 
 def test_generate_produces_expected_codes_and_labels():

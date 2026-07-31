@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from app.core.audit_log import append_print_log
 from app.core.config import default_settings_path
-from app.core.label_renderer import render_label
+from app.core.label_renderer import apply_orientation, render_label
 from app.core.position_generator import (
     NUMBER_MAX,
     codes_from_csv_rows,
@@ -69,6 +69,9 @@ class PositionsModePanel(QWidget):
         self.label_size_combo = QComboBox()
         self.refresh_from_settings(settings)
 
+        self.orientation_combo = QComboBox()
+        self.orientation_combo.addItems(["Landscape", "Portrait"])
+
         self.result_label = QLabel("0 labels generated")
         generate_button = QPushButton("Generate")
         generate_button.clicked.connect(self._on_generate_clicked)
@@ -89,6 +92,7 @@ class PositionsModePanel(QWidget):
         form.addRow("Height to", self.height_to_edit)
         form.addRow("Custom text", self.custom_text_edit)
         form.addRow("Label size", self.label_size_combo)
+        form.addRow("Orientation", self.orientation_combo)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -159,6 +163,9 @@ class PositionsModePanel(QWidget):
         label_size = self.label_size_combo.currentData()
         if label_size is None:
             raise ValueError("No label size selected - add one in Settings first")
+        width_mm, height_mm = apply_orientation(
+            label_size["width_mm"], label_size["height_mm"], self.orientation_combo.currentText()
+        )
         custom_text = self.custom_text_edit.text()
 
         results = []
@@ -168,14 +175,14 @@ class PositionsModePanel(QWidget):
             image = render_label(
                 barcode_data,
                 visible_text,
-                width_mm=label_size["width_mm"],
-                height_mm=label_size["height_mm"],
+                width_mm=width_mm,
+                height_mm=height_mm,
             )
             results.append((code, image))
 
         self.generated_codes = codes
         self.generated_labels = [image for _, image in results]
-        self._generated_label_size = label_size
+        self._generated_label_size = {"width_mm": width_mm, "height_mm": height_mm}
         return results
 
     def _on_import_csv_clicked(self) -> None:
