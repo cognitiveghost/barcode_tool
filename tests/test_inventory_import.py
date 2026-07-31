@@ -63,6 +63,18 @@ def test_items_from_csv_rows_skips_malformed_position_code():
     assert skipped == [2]
 
 
+def test_items_from_csv_rows_skips_position_code_above_number_max():
+    rows = [
+        {"sku": "SKU1", "position_code": "H011A"},
+        {"sku": "SKU2", "position_code": "H1000A"},
+    ]
+
+    items, skipped = items_from_csv_rows(rows)
+
+    assert [item.sku for item in items] == ["SKU1"]
+    assert skipped == [2]
+
+
 def test_items_from_csv_rows_keeps_multiple_positions_for_same_sku():
     rows = [
         {"sku": "SKU1", "position_code": "H011A"},

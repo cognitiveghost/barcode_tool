@@ -29,6 +29,21 @@ from app.ui.csv_import_dialog import CsvImportDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Position", "Batch", "Expiry"]
 
+_DESCRIPTION_SKU_LIMIT = 5
+
+
+class AuditLogError(OSError):
+    """Raised when labels printed successfully but the audit log entry could not be written."""
+
+
+def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
+    unique_skus = list(dict.fromkeys(skus))
+    description = ", ".join(unique_skus[:limit])
+    remaining = len(unique_skus) - limit
+    if remaining > 0:
+        description += f" +{remaining} more"
+    return description
+
 
 class InventoryModePanel(QWidget):
     def __init__(self, settings: dict, parent=None):
@@ -110,7 +125,9 @@ class InventoryModePanel(QWidget):
 
             values = [item.sku, item.name, item.position_code, item.batch, item.expiry]
             for column, value in enumerate(values, start=1):
-                self.items_table.setItem(row_index, column, QTableWidgetItem(value))
+                cell = QTableWidgetItem(value)
+                cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.items_table.setItem(row_index, column, cell)
 
     def _set_all_checked(self, checked: bool) -> None:
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
@@ -139,6 +156,13 @@ class InventoryModePanel(QWidget):
     def _on_print_clicked(self) -> None:
         try:
             self.print_checked_items()
+        except AuditLogError as error:
+            QMessageBox.warning(
+                self,
+                "Audit log failed",
+                f"Labels printed, but the audit log entry failed: {error}\n"
+                "Do not reprint this batch.",
+            )
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "Print failed", str(error))
 
@@ -151,7 +175,9 @@ class InventoryModePanel(QWidget):
         if label_size is None:
             raise ValueError("No label size selected - add one in Settings first")
 
-        warehouse_prefix = self.warehouse_combo.currentData() or ""
+        warehouse_prefix = self.warehouse_combo.currentData()
+        if not warehouse_prefix:
+            raise ValueError("No warehouse selected - add one in Settings first")
 
         images = []
         for item in checked:
@@ -179,12 +205,14 @@ class InventoryModePanel(QWidget):
 
         shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
         log_path = Path(shared_folder) / "audit_log.csv"
-        skus = [item.sku for item in checked]
-        description = f"{skus[0]}..{skus[-1]}" if len(skus) > 1 else skus[0]
-        append_print_log(
-            log_path,
-            mode="inventory",
-            warehouse_prefix=warehouse_prefix,
-            count=len(checked),
-            description=description,
-        )
+        description = _describe_skus([item.sku for item in checked])
+        try:
+            append_print_log(
+                log_path,
+                mode="inventory",
+                warehouse_prefix=warehouse_prefix,
+                count=len(checked),
+                description=description,
+            )
+        except OSError as error:
+            raise AuditLogError(str(error)) from error

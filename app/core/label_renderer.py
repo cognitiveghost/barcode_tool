@@ -62,7 +62,7 @@ def render_inventory_label(
 
     top_height = round(height_px * 0.7)
     sku_qr = generate_qr_image(sku_data)
-    sku_size = min(top_height - 4, width_px // 2)
+    sku_size = max(1, min(top_height - 4, width_px // 2))
     sku_qr = sku_qr.resize((sku_size, sku_size))
     canvas.paste(sku_qr, (0, 0))
 

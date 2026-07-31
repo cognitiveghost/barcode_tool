@@ -77,16 +77,18 @@ def codes_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[str], list[int
     return codes, skipped_rows
 
 
-_POSITION_CODE_PATTERN = re.compile(r"^[A-Za-z]\d+[A-Za-z]?$")
+_POSITION_CODE_PATTERN = re.compile(r"[A-Za-z][0-9]+[A-Za-z]?")
 
 
 def parse_position_code(code: str) -> tuple[str, str, str]:
-    if not _POSITION_CODE_PATTERN.match(code):
+    if not _POSITION_CODE_PATTERN.fullmatch(code):
         raise ValueError(
             f"position code {code!r} must be a letter, digits, and an "
             "optional trailing letter (e.g. H011A)"
         )
     corridor = code[0]
-    if code[-1].isalpha():
-        return corridor, code[1:-1], code[-1]
-    return corridor, code[1:], ""
+    height = code[-1] if code[-1].isalpha() else ""
+    number = code[1:-1] if height else code[1:]
+    if int(number) > NUMBER_MAX:
+        raise ValueError(f"position numbers must be at most {NUMBER_MAX}")
+    return corridor, number, height

@@ -1,8 +1,10 @@
+import csv
+
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.ui.mode_inventory_panel import InventoryModePanel
+from app.ui.mode_inventory_panel import InventoryModePanel, _describe_skus
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
@@ -28,6 +30,16 @@ def test_load_items_populates_table():
     assert panel.items_table.rowCount() == 2
     assert panel.items_table.item(0, 1).text() == "SKU1"
     assert panel.result_label.text() == "2 items imported"
+
+
+def test_data_cells_are_not_editable():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    for column in range(1, 6):
+        cell = panel.items_table.item(0, column)
+        assert not (cell.flags() & Qt.ItemFlag.ItemIsEditable)
 
 
 def test_load_items_reports_skipped_rows():
@@ -197,9 +209,9 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
 
     assert pdf_path.exists()
     log_path = tmp_path / "audit_log.csv"
-    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
-    assert len(log_lines) == 2  # header + one entry
-    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "2", "SKU1..SKU2"]
+    rows = list(csv.reader(log_path.read_text(encoding="utf-8").splitlines()))
+    assert len(rows) == 2  # header + one entry
+    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2"]
 
 
 def test_print_checked_items_skips_unchecked_rows(tmp_path):
@@ -240,6 +252,87 @@ def test_print_checked_items_raises_without_label_size():
 
     with pytest.raises(ValueError):
         panel.print_checked_items()
+
+
+def test_print_checked_items_raises_without_warehouse():
+    _app()
+    settings = {"warehouses": [], "label_sizes": SETTINGS["label_sizes"]}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    with pytest.raises(ValueError):
+        panel.print_checked_items()
+
+
+def test_print_button_click_without_warehouse_shows_warning(monkeypatch):
+    _app()
+    settings = {"warehouses": [], "label_sizes": SETTINGS["label_sizes"]}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()
+
+    assert len(warnings) == 1
+
+
+def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    def _boom(*a, **k):
+        raise OSError("printer offline")
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.print_labels", _boom)
+    log_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.append_print_log",
+        lambda *a, **k: log_calls.append(True),
+    )
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()
+
+    assert warnings[0][1] == "Print failed"
+    assert log_calls == []
+
+
+def test_audit_log_failure_reports_distinct_warning_after_successful_print(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    print_calls = []
+
+    def _log_boom(*a, **k):
+        raise OSError("share unavailable")
+
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.print_labels",
+        lambda *a, **k: print_calls.append(True),
+    )
+    monkeypatch.setattr("app.ui.mode_inventory_panel.append_print_log", _log_boom)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()
+
+    assert print_calls == [True]
+    assert warnings[0][1] == "Audit log failed"
+
+
+def test_describe_skus_dedupes_repeated_sku():
+    assert _describe_skus(["SKU1", "SKU2", "SKU1"]) == "SKU1, SKU2"
+
+
+def test_describe_skus_caps_long_lists():
+    skus = [f"SKU{i}" for i in range(7)]
+    assert _describe_skus(skus) == "SKU0, SKU1, SKU2, SKU3, SKU4 +2 more"
 
 
 def test_print_button_click_invokes_print_checked_items(monkeypatch):

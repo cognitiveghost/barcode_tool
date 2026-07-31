@@ -152,3 +152,18 @@ def test_parse_position_code_rejects_multi_letter_corridor():
 def test_parse_position_code_rejects_malformed_string():
     with pytest.raises(ValueError):
         parse_position_code("not-a-position")
+
+
+def test_parse_position_code_rejects_number_above_max():
+    with pytest.raises(ValueError):
+        parse_position_code("H1000")
+
+
+def test_parse_position_code_rejects_trailing_newline():
+    with pytest.raises(ValueError):
+        parse_position_code("H011A\n")
+
+
+def test_parse_position_code_rejects_non_ascii_digits():
+    with pytest.raises(ValueError):
+        parse_position_code("H٠١١A")  # Arabic-Indic digits, not "011"
