@@ -27,6 +27,45 @@ def test_generate_produces_expected_codes_and_labels():
     assert len(panel.generated_labels) == 2
 
 
+def test_generate_single_position_without_number_to():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    results = panel.generate()
+
+    assert [code for code, _ in results] == ["H029"]
+
+
+def test_corridor_field_rejects_non_letter_input():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.insert("1")  # simulates typing, unlike setText()
+
+    assert panel.corridor_edit.text() == ""
+
+
+def test_corridor_field_accepts_single_letter():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.insert("H")
+    panel.corridor_edit.insert("X")  # second letter must be rejected (maxLength=1)
+
+    assert panel.corridor_edit.text() == "H"
+
+
+def test_number_from_field_rejects_value_above_max():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.number_from_edit.insert("1000")
+
+    assert panel.number_from_edit.text() == ""
+
+
 def test_invalid_range_raises_value_error():
     _app()
     panel = PositionsModePanel(SETTINGS)

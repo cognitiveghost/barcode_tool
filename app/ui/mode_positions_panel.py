@@ -4,6 +4,8 @@ from pathlib import Path
 
 from barcode.errors import BarcodeError
 from PIL import Image
+from PySide6.QtCore import QRegularExpression
+from PySide6.QtGui import QIntValidator, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,8 +21,10 @@ from PySide6.QtWidgets import (
 from app.core.audit_log import append_print_log
 from app.core.config import default_settings_path
 from app.core.label_renderer import render_label
-from app.core.position_generator import generate_position_codes
+from app.core.position_generator import NUMBER_MAX, generate_position_codes
 from app.core.print_service import print_labels
+
+_LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
 
 
 class PositionsModePanel(QWidget):
@@ -32,12 +36,21 @@ class PositionsModePanel(QWidget):
 
         self.warehouse_combo = QComboBox()
         self.corridor_edit = QLineEdit()
+        self.corridor_edit.setValidator(_LETTER_VALIDATOR)
+        self.corridor_edit.setMaxLength(1)
         self.number_from_edit = QLineEdit()
+        self.number_from_edit.setValidator(QIntValidator(0, NUMBER_MAX, self))
         self.number_to_edit = QLineEdit()
+        self.number_to_edit.setValidator(QIntValidator(0, NUMBER_MAX, self))
+        self.number_to_edit.setPlaceholderText("same as from (optional)")
 
         self.height_enabled_check = QCheckBox("Use height")
         self.height_from_edit = QLineEdit()
+        self.height_from_edit.setValidator(_LETTER_VALIDATOR)
+        self.height_from_edit.setMaxLength(1)
         self.height_to_edit = QLineEdit()
+        self.height_to_edit.setValidator(_LETTER_VALIDATOR)
+        self.height_to_edit.setMaxLength(1)
 
         self.custom_text_edit = QLineEdit()
 
@@ -101,7 +114,7 @@ class PositionsModePanel(QWidget):
         codes = generate_position_codes(
             self.corridor_edit.text(),
             self.number_from_edit.text(),
-            self.number_to_edit.text(),
+            self.number_to_edit.text() or None,
             height_from,
             height_to,
         )

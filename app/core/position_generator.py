@@ -1,20 +1,26 @@
 from __future__ import annotations
 
+NUMBER_WIDTH = 3
+NUMBER_MAX = 10**NUMBER_WIDTH - 1
+
 
 def generate_position_codes(
     corridor: str,
     number_from: str,
-    number_to: str,
+    number_to: str | None = None,
     height_from: str | None = None,
     height_to: str | None = None,
 ) -> list[str]:
+    if number_to is None:
+        number_to = number_from
     if not number_from.isdigit() or not number_to.isdigit():
         raise ValueError("number_from and number_to must be digits")
     if not corridor.isascii():
         raise ValueError("corridor must contain only ASCII characters (Code128 can't encode this)")
 
-    width = len(number_from)
     start, end = int(number_from), int(number_to)
+    if start > NUMBER_MAX or end > NUMBER_MAX:
+        raise ValueError(f"position numbers must be at most {NUMBER_MAX}")
     if start > end:
         raise ValueError("number_from must be <= number_to")
 
@@ -32,7 +38,7 @@ def generate_position_codes(
 
     codes = []
     for number in range(start, end + 1):
-        padded = str(number).zfill(width)
+        padded = str(number).zfill(NUMBER_WIDTH)
         for height in heights:
             codes.append(f"{corridor}{padded}{height}")
     return codes

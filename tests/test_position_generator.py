@@ -31,9 +31,24 @@ def test_invalid_height_range_raises():
         generate_position_codes("H", "029", "030", "F", "A")
 
 
-def test_zero_padding_matches_input_width():
+def test_zero_padding_always_three_digits():
     codes = generate_position_codes("H", "005", "006")
     assert codes == ["H005", "H006"]
+
+
+def test_short_input_is_padded_to_three_digits():
+    assert generate_position_codes("H", "45", "45") == ["H045"]
+    assert generate_position_codes("H", "5", "5") == ["H005"]
+
+
+def test_number_above_max_raises_value_error():
+    with pytest.raises(ValueError):
+        generate_position_codes("H", "029", "1000")
+
+
+def test_number_to_defaults_to_number_from():
+    codes = generate_position_codes("H", "029")
+    assert codes == ["H029"]
 
 
 def test_non_ascii_corridor_raises_value_error():
