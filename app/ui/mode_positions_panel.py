@@ -21,10 +21,22 @@ from PySide6.QtWidgets import (
 from app.core.audit_log import append_print_log
 from app.core.config import default_settings_path
 from app.core.label_renderer import render_label
-from app.core.position_generator import NUMBER_MAX, generate_position_codes
+from app.core.position_generator import (
+    NUMBER_MAX,
+    codes_from_csv_rows,
+    generate_position_codes,
+)
 from app.core.print_service import print_labels
+from app.ui.csv_import_dialog import CsvImportDialog
 
 _LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
+
+POSITION_CSV_FIELDS = [
+    ("position_code", "Position code (overrides corridor/number/height)"),
+    ("corridor", "Corridor"),
+    ("number", "Number"),
+    ("height", "Height (optional)"),
+]
 
 
 class PositionsModePanel(QWidget):
@@ -61,6 +73,9 @@ class PositionsModePanel(QWidget):
         generate_button = QPushButton("Generate")
         generate_button.clicked.connect(self._on_generate_clicked)
 
+        self.import_csv_button = QPushButton("Import CSV...")
+        self.import_csv_button.clicked.connect(self._on_import_csv_clicked)
+
         self.print_button = QPushButton("Print")
         self.print_button.clicked.connect(self._on_print_clicked)
 
@@ -78,6 +93,7 @@ class PositionsModePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(generate_button)
+        layout.addWidget(self.import_csv_button)
         layout.addWidget(self.result_label)
         layout.addWidget(self.print_button)
 
@@ -105,7 +121,6 @@ class PositionsModePanel(QWidget):
             QMessageBox.warning(self, "Print failed", str(error))
 
     def generate(self) -> list[tuple[str, Image.Image]]:
-        warehouse_prefix = self.warehouse_combo.currentData() or ""
         height_from = self.height_from_edit.text() or None
         height_to = self.height_to_edit.text() or None
         if not self.height_enabled_check.isChecked():
@@ -119,6 +134,28 @@ class PositionsModePanel(QWidget):
             height_to,
         )
 
+        results = self._render_labels(codes)
+        self.result_label.setText(f"{len(results)} labels generated")
+        return results
+
+    def generate_from_rows(self, rows: list[dict[str, str]]) -> list[tuple[str, Image.Image]]:
+        codes, skipped_rows = codes_from_csv_rows(rows)
+        if not codes:
+            raise ValueError("No valid position codes found in the imported rows")
+
+        results = self._render_labels(codes)
+
+        if skipped_rows:
+            unit = "row" if len(skipped_rows) == 1 else "rows"
+            self.result_label.setText(
+                f"{len(results)} labels generated ({len(skipped_rows)} {unit} skipped)"
+            )
+        else:
+            self.result_label.setText(f"{len(results)} labels generated")
+        return results
+
+    def _render_labels(self, codes: list[str]) -> list[tuple[str, Image.Image]]:
+        warehouse_prefix = self.warehouse_combo.currentData() or ""
         label_size = self.label_size_combo.currentData()
         if label_size is None:
             raise ValueError("No label size selected - add one in Settings first")
@@ -139,8 +176,16 @@ class PositionsModePanel(QWidget):
         self.generated_codes = codes
         self.generated_labels = [image for _, image in results]
         self._generated_label_size = label_size
-        self.result_label.setText(f"{len(results)} labels generated")
         return results
+
+    def _on_import_csv_clicked(self) -> None:
+        dialog = CsvImportDialog(POSITION_CSV_FIELDS, parent=self)
+        if not dialog.exec():
+            return
+        try:
+            self.generate_from_rows(dialog.get_mapped_rows())
+        except ValueError as error:
+            QMessageBox.warning(self, "Import failed", str(error))
 
     def print_current_labels(self, output_pdf_path: Path | None = None) -> None:
         if not self.generated_labels:

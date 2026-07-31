@@ -4,6 +4,18 @@ NUMBER_WIDTH = 3
 NUMBER_MAX = 10**NUMBER_WIDTH - 1
 
 
+def format_position_code(corridor: str, number: str, height: str = "") -> str:
+    if not corridor.isascii():
+        raise ValueError("corridor must contain only ASCII characters (Code128 can't encode this)")
+    if not number.isdigit():
+        raise ValueError("number must be digits")
+    if int(number) > NUMBER_MAX:
+        raise ValueError(f"position numbers must be at most {NUMBER_MAX}")
+    if height and (len(height) != 1 or not height.isascii()):
+        raise ValueError("height must be a single ASCII character")
+    return f"{corridor}{number.zfill(NUMBER_WIDTH)}{height}"
+
+
 def generate_position_codes(
     corridor: str,
     number_from: str,
@@ -36,9 +48,28 @@ def generate_position_codes(
             raise ValueError("height_from must be <= height_to")
         heights = [chr(c) for c in range(ord(height_from), ord(height_to) + 1)]
 
-    codes = []
-    for number in range(start, end + 1):
-        padded = str(number).zfill(NUMBER_WIDTH)
-        for height in heights:
-            codes.append(f"{corridor}{padded}{height}")
-    return codes
+    return [
+        format_position_code(corridor, str(number), height)
+        for number in range(start, end + 1)
+        for height in heights
+    ]
+
+
+def codes_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[str], list[int]]:
+    codes: list[str] = []
+    skipped_rows: list[int] = []
+    for row_number, row in enumerate(rows, start=1):
+        position_code = (row.get("position_code") or "").strip()
+        try:
+            if position_code:
+                if not position_code.isascii():
+                    raise ValueError("position code must be ASCII")
+                codes.append(position_code)
+            else:
+                corridor = (row.get("corridor") or "").strip()
+                number = (row.get("number") or "").strip()
+                height = (row.get("height") or "").strip()
+                codes.append(format_position_code(corridor, number, height))
+        except ValueError:
+            skipped_rows.append(row_number)
+    return codes, skipped_rows

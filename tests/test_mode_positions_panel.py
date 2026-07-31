@@ -180,6 +180,120 @@ def test_print_uses_label_size_from_generate_time_not_live_combo(monkeypatch, tm
     assert calls[0]["height_mm"] == 38
 
 
+def test_generate_from_rows_builds_labels_from_components():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    rows = [
+        {"corridor": "H", "number": "029", "height": ""},
+        {"corridor": "H", "number": "030", "height": ""},
+    ]
+
+    results = panel.generate_from_rows(rows)
+
+    assert [code for code, _ in results] == ["H029", "H030"]
+    assert panel.result_label.text() == "2 labels generated"
+
+
+def test_generate_from_rows_reports_skipped_rows():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    rows = [
+        {"corridor": "H", "number": "029", "height": ""},
+        {"corridor": "H", "number": "not-a-number", "height": ""},
+        {"corridor": "H", "number": "030", "height": ""},
+    ]
+
+    results = panel.generate_from_rows(rows)
+
+    assert [code for code, _ in results] == ["H029", "H030"]
+    assert panel.result_label.text() == "2 labels generated (1 row skipped)"
+
+
+def test_generate_from_rows_uses_position_code_field_directly():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    rows = [{"position_code": "H099Z"}]
+
+    results = panel.generate_from_rows(rows)
+
+    assert [code for code, _ in results] == ["H099Z"]
+
+
+def test_generate_from_rows_raises_when_no_valid_codes():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    rows = [{"corridor": "H", "number": "not-a-number", "height": ""}]
+
+    with pytest.raises(ValueError):
+        panel.generate_from_rows(rows)
+
+
+def test_import_csv_button_opens_dialog_and_generates_from_rows(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    fake_rows = [{"corridor": "H", "number": "029", "height": ""}]
+
+    class FakeDialog:
+        def __init__(self, fields, parent=None):
+            pass
+
+        def exec(self):
+            return True
+
+        def get_mapped_rows(self):
+            return fake_rows
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.CsvImportDialog", FakeDialog)
+
+    panel.import_csv_button.click()
+
+    assert panel.generated_codes == ["H029"]
+
+
+def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    class FakeDialog:
+        def __init__(self, fields, parent=None):
+            pass
+
+        def exec(self):
+            return False
+
+        def get_mapped_rows(self):
+            raise AssertionError("should not be called when the dialog is cancelled")
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.CsvImportDialog", FakeDialog)
+
+    panel.import_csv_button.click()
+
+    assert panel.generated_codes == []
+
+
+def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    class FakeDialog:
+        def __init__(self, fields, parent=None):
+            pass
+
+        def exec(self):
+            return True
+
+        def get_mapped_rows(self):
+            return [{"corridor": "H", "number": "not-a-number", "height": ""}]
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.CsvImportDialog", FakeDialog)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.import_csv_button.click()
+
+    assert len(warnings) == 1
+
+
 def test_refresh_from_settings_rebuilds_combos():
     _app()
     panel = PositionsModePanel(SETTINGS)
