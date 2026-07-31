@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QHeaderView,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -52,6 +53,9 @@ class CsvImportDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(self.preview_table)
         layout.addWidget(buttons)
+
+        self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.resize(900, 600)
 
     def _on_browse_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Import CSV", filter="CSV files (*.csv)")
