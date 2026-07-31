@@ -28,3 +28,17 @@ def test_append_twice_adds_second_row_without_duplicate_header(tmp_path):
     assert rows.count(
         ["timestamp", "user", "mode", "warehouse_prefix", "count", "description"]
     ) == 1
+
+
+def test_leading_formula_characters_are_escaped(tmp_path):
+    log_path = tmp_path / "audit.csv"
+
+    append_print_log(
+        log_path, mode="positions", warehouse_prefix="=C001", count=1, description="=SUM(A1)"
+    )
+
+    with log_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+
+    assert rows[1][3] == "'=C001"
+    assert rows[1][5] == "'=SUM(A1)"

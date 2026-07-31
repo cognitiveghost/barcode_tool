@@ -37,7 +37,11 @@ class SettingsWindow(QDialog):
         printer_names = [p.printerName() for p in QPrinterInfo.availablePrinters()]
         self.printer_combo.addItems(printer_names)
         current_printer = settings.get("default_printer", "")
-        if current_printer in printer_names:
+        if current_printer and current_printer not in printer_names:
+            # Printer may just be offline right now - keep it selected instead
+            # of silently dropping it and overwriting the setting on save.
+            self.printer_combo.addItem(current_printer)
+        if current_printer:
             self.printer_combo.setCurrentText(current_printer)
 
         self.warehouse_table = QTableWidget(0, 2)

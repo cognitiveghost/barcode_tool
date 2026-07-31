@@ -7,6 +7,16 @@ from pathlib import Path
 
 LOG_COLUMNS = ["timestamp", "user", "mode", "warehouse_prefix", "count", "description"]
 
+_RISKY_LEADING_CHARS = ("=", "+", "-", "@")
+
+
+def _escape_csv_formula(value: str) -> str:
+    # Prefix with a quote so spreadsheet apps (Excel, LibreOffice) treat a
+    # leading =/+/-/@ as literal text instead of executing it as a formula.
+    if value.startswith(_RISKY_LEADING_CHARS):
+        return f"'{value}"
+    return value
+
 
 def append_print_log(
     log_path: Path,
@@ -29,8 +39,8 @@ def append_print_log(
                 datetime.now(timezone.utc).isoformat(),
                 getpass.getuser(),
                 mode,
-                warehouse_prefix,
+                _escape_csv_formula(warehouse_prefix),
                 count,
-                description,
+                _escape_csv_formula(description),
             ]
         )

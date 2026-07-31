@@ -10,6 +10,8 @@ def generate_position_codes(
 ) -> list[str]:
     if not number_from.isdigit() or not number_to.isdigit():
         raise ValueError("number_from and number_to must be digits")
+    if not corridor.isascii():
+        raise ValueError("corridor must contain only ASCII characters (Code128 can't encode this)")
 
     width = len(number_from)
     start, end = int(number_from), int(number_to)
@@ -22,6 +24,8 @@ def generate_position_codes(
             height_to = height_from
         if len(height_from) != 1 or len(height_to) != 1:
             raise ValueError("height letters must be single characters")
+        if not height_from.isascii() or not height_to.isascii():
+            raise ValueError("height letters must be ASCII characters (Code128 can't encode this)")
         if height_from > height_to:
             raise ValueError("height_from must be <= height_to")
         heights = [chr(c) for c in range(ord(height_from), ord(height_to) + 1)]

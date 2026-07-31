@@ -110,6 +110,37 @@ def test_print_current_labels_falls_back_to_settings_dir_when_shared_folder_empt
     assert (tmp_path / "audit_log.csv").exists()
 
 
+def test_print_uses_label_size_from_generate_time_not_live_combo(monkeypatch, tmp_path):
+    _app()
+    settings = {
+        "warehouses": SETTINGS["warehouses"],
+        "label_sizes": [
+            {"name": "68x38mm", "width_mm": 68, "height_mm": 38},
+            {"name": "80x80mm", "width_mm": 80, "height_mm": 80},
+        ],
+        "default_printer": "",
+        "shared_folder": str(tmp_path),
+    }
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+    panel.label_size_combo.setCurrentIndex(0)  # 68x38mm
+    panel.generate()
+
+    panel.label_size_combo.setCurrentIndex(1)  # user changes size after Generate
+
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.print_labels",
+        lambda *a, **k: calls.append(k),
+    )
+    panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
+
+    assert calls[0]["width_mm"] == 68
+    assert calls[0]["height_mm"] == 38
+
+
 def test_refresh_from_settings_rebuilds_combos():
     _app()
     panel = PositionsModePanel(SETTINGS)

@@ -34,3 +34,13 @@ def test_invalid_height_range_raises():
 def test_zero_padding_matches_input_width():
     codes = generate_position_codes("H", "005", "006")
     assert codes == ["H005", "H006"]
+
+
+def test_non_ascii_corridor_raises_value_error():
+    with pytest.raises(ValueError):
+        generate_position_codes("Н", "029", "030")  # Cyrillic "Н", not Code128-safe
+
+
+def test_non_ascii_height_raises_value_error():
+    with pytest.raises(ValueError):
+        generate_position_codes("H", "029", "030", "А", "А")  # Cyrillic "А"

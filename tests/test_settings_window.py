@@ -1,3 +1,4 @@
+from PySide6.QtPrintSupport import QPrinterInfo
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.core.config import DEFAULT_SETTINGS, load_settings
@@ -46,3 +47,14 @@ def test_save_with_no_settings_path_warns_and_does_not_close(monkeypatch):
 
     assert len(warnings) == 1
     assert accepted == []
+
+
+def test_offline_default_printer_is_preserved_not_overwritten(monkeypatch):
+    _app()
+    monkeypatch.setattr(QPrinterInfo, "availablePrinters", staticmethod(list))
+    settings = {**DEFAULT_SETTINGS, "default_printer": "Citizen CL-E300"}
+
+    window = SettingsWindow(settings, settings_path=None)
+
+    assert window.printer_combo.currentText() == "Citizen CL-E300"
+    assert window.get_current_settings()["default_printer"] == "Citizen CL-E300"

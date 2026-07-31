@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from barcode.errors import BarcodeError
 from PIL import Image
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -27,6 +28,7 @@ class PositionsModePanel(QWidget):
         super().__init__(parent)
         self.generated_codes: list[str] = []
         self.generated_labels: list[Image.Image] = []
+        self._generated_label_size: dict | None = None
 
         self.warehouse_combo = QComboBox()
         self.corridor_edit = QLineEdit()
@@ -80,14 +82,14 @@ class PositionsModePanel(QWidget):
     def _on_generate_clicked(self) -> None:
         try:
             self.generate()
-        except ValueError as error:
+        except (ValueError, BarcodeError) as error:
             QMessageBox.warning(self, "Invalid range", str(error))
 
     def _on_print_clicked(self) -> None:
         try:
             self.print_current_labels()
-        except ValueError as error:
-            QMessageBox.warning(self, "Nothing to print", str(error))
+        except (ValueError, BarcodeError, OSError) as error:
+            QMessageBox.warning(self, "Print failed", str(error))
 
     def generate(self) -> list[tuple[str, Image.Image]]:
         warehouse_prefix = self.warehouse_combo.currentData() or ""
@@ -123,6 +125,7 @@ class PositionsModePanel(QWidget):
 
         self.generated_codes = codes
         self.generated_labels = [image for _, image in results]
+        self._generated_label_size = label_size
         self.result_label.setText(f"{len(results)} labels generated")
         return results
 
@@ -130,7 +133,9 @@ class PositionsModePanel(QWidget):
         if not self.generated_labels:
             raise ValueError("Nothing to print - generate labels first")
 
-        label_size = self.label_size_combo.currentData()
+        # Use the size the labels were actually rendered at, not whatever the
+        # combo currently shows - the user may have changed it after Generate.
+        label_size = self._generated_label_size
         printer_name = self._settings.get("default_printer") or None
 
         print_labels(
