@@ -7,6 +7,7 @@ from app.core.position_generator import format_position_code, parse_position_cod
 INVENTORY_CSV_FIELDS = [
     ("sku", "SKU (required)"),
     ("name", "Product name"),
+    ("client", "Client (optional)"),
     ("batch", "Batch (optional)"),
     ("expiry", "Expiry (optional)"),
     ("position_code", "Position code (overrides corridor/number/height)"),
@@ -23,6 +24,17 @@ class InventoryItem:
     batch: str
     expiry: str
     position_code: str
+    client: str = ""
+
+
+def _split_combined_expiry_batch(expiry: str, batch: str) -> tuple[str, str]:
+    if not batch and "/" in expiry:
+        parts = expiry.split("/", 1)
+        return parts[0].strip(), parts[1].strip()
+    if not expiry and "/" in batch:
+        parts = batch.split("/", 1)
+        return parts[0].strip(), parts[1].strip()
+    return expiry, batch
 
 
 def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[int]]:
@@ -43,13 +55,19 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                 )
             parse_position_code(position_code)
 
+            expiry, batch = _split_combined_expiry_batch(
+                (row.get("expiry") or "").strip(),
+                (row.get("batch") or "").strip(),
+            )
+
             items.append(
                 InventoryItem(
                     sku=sku,
                     name=(row.get("name") or "").strip(),
-                    batch=(row.get("batch") or "").strip(),
-                    expiry=(row.get("expiry") or "").strip(),
+                    batch=batch,
+                    expiry=expiry,
                     position_code=position_code,
+                    client=(row.get("client") or "").strip(),
                 )
             )
         except ValueError:
