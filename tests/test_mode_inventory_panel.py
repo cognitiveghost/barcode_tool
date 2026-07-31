@@ -173,3 +173,92 @@ def test_refresh_from_settings_rebuilds_combos():
     label_size_names = [panel.label_size_combo.itemText(i) for i in range(panel.label_size_combo.count())]
     assert warehouse_names == ["Second"]
     assert label_size_names == ["80x80mm"]
+
+
+def test_print_checked_items_writes_pdf_and_log(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items(
+        [
+            {
+                "sku": "SKU1",
+                "name": "Widget",
+                "batch": "4471",
+                "expiry": "2027-03",
+                "position_code": "H011A",
+            },
+            {"sku": "SKU2", "name": "Gadget", "position_code": "H012A"},
+        ]
+    )
+
+    pdf_path = tmp_path / "out.pdf"
+    panel.print_checked_items(output_pdf_path=pdf_path)
+
+    assert pdf_path.exists()
+    log_path = tmp_path / "audit_log.csv"
+    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(log_lines) == 2  # header + one entry
+    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "2", "SKU1..SKU2"]
+
+
+def test_print_checked_items_skips_unchecked_rows(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items(
+        [
+            {"sku": "SKU1", "position_code": "H011A"},
+            {"sku": "SKU2", "position_code": "H012A"},
+        ]
+    )
+    panel.items_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
+
+    panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
+
+    log_path = tmp_path / "audit_log.csv"
+    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1"]
+
+
+def test_print_checked_items_raises_when_nothing_checked(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    panel.select_none_button.click()
+
+    with pytest.raises(ValueError):
+        panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
+
+
+def test_print_checked_items_raises_without_label_size():
+    _app()
+    settings = {"warehouses": SETTINGS["warehouses"], "label_sizes": []}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    with pytest.raises(ValueError):
+        panel.print_checked_items()
+
+
+def test_print_button_click_invokes_print_checked_items(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    calls = []
+    monkeypatch.setattr(panel, "print_checked_items", lambda: calls.append(True))
+
+    panel.print_button.click()
+
+    assert calls == [True]
+
+
+def test_print_button_click_without_items_shows_warning(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()
+
+    assert len(warnings) == 1

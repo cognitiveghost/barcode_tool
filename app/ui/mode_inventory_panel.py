@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -14,7 +16,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.core.audit_log import append_print_log
+from app.core.config import default_settings_path
 from app.core.inventory_import import INVENTORY_CSV_FIELDS, InventoryItem, items_from_csv_rows
+from app.core.label_renderer import render_inventory_label
+from app.core.print_service import print_labels
 from app.ui.csv_import_dialog import CsvImportDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Position", "Batch", "Expiry"]
@@ -43,6 +49,7 @@ class InventoryModePanel(QWidget):
         self.items_table.setHorizontalHeaderLabels(TABLE_COLUMNS)
 
         self.print_button = QPushButton("Print")
+        self.print_button.clicked.connect(self._on_print_clicked)
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
@@ -124,3 +131,56 @@ class InventoryModePanel(QWidget):
             self.load_items(dialog.get_mapped_rows())
         except ValueError as error:
             QMessageBox.warning(self, "Import failed", str(error))
+
+    def _on_print_clicked(self) -> None:
+        try:
+            self.print_checked_items()
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+
+    def print_checked_items(self, output_pdf_path: Path | None = None) -> None:
+        checked = self.checked_items()
+        if not checked:
+            raise ValueError("Nothing to print - import a CSV and check at least one row")
+
+        label_size = self.label_size_combo.currentData()
+        if label_size is None:
+            raise ValueError("No label size selected - add one in Settings first")
+
+        warehouse_prefix = self.warehouse_combo.currentData() or ""
+
+        images = []
+        for item in checked:
+            text_lines = [item.name] if item.name else []
+            if item.batch:
+                text_lines.append(f"Batch {item.batch}")
+            if item.expiry:
+                text_lines.append(f"Exp {item.expiry}")
+            image = render_inventory_label(
+                item.sku,
+                "\n".join(text_lines),
+                f"{warehouse_prefix}{item.position_code}",
+                width_mm=label_size["width_mm"],
+                height_mm=label_size["height_mm"],
+            )
+            images.append(image)
+
+        print_labels(
+            images,
+            width_mm=label_size["width_mm"],
+            height_mm=label_size["height_mm"],
+            printer_name=self._settings.get("default_printer") or None,
+            output_pdf_path=output_pdf_path,
+        )
+
+        shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
+        log_path = Path(shared_folder) / "audit_log.csv"
+        skus = [item.sku for item in checked]
+        description = f"{skus[0]}..{skus[-1]}" if len(skus) > 1 else skus[0]
+        append_print_log(
+            log_path,
+            mode="inventory",
+            warehouse_prefix=warehouse_prefix,
+            count=len(checked),
+            description=description,
+        )
