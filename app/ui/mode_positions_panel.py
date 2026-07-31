@@ -21,7 +21,11 @@ from PySide6.QtWidgets import (
 from app.core.audit_log import append_print_log
 from app.core.config import default_settings_path
 from app.core.label_renderer import render_label
-from app.core.position_generator import NUMBER_MAX, codes_from_csv_rows, generate_position_codes
+from app.core.position_generator import (
+    NUMBER_MAX,
+    codes_from_csv_rows,
+    generate_position_codes,
+)
 from app.core.print_service import print_labels
 from app.ui.csv_import_dialog import CsvImportDialog
 

@@ -1,6 +1,10 @@
 import pytest
 
-from app.core.position_generator import codes_from_csv_rows, format_position_code, generate_position_codes
+from app.core.position_generator import (
+    codes_from_csv_rows,
+    format_position_code,
+    generate_position_codes,
+)
 
 
 def test_simple_range_no_height():
@@ -99,7 +103,7 @@ def test_codes_from_csv_rows_builds_codes_from_components():
 def test_codes_from_csv_rows_prefers_position_code_when_present():
     rows = [{"position_code": "C001H099Z", "corridor": "X", "number": "1", "height": ""}]
 
-    codes, skipped = codes_from_csv_rows(rows)
+    codes, _skipped = codes_from_csv_rows(rows)
 
     assert codes == ["C001H099Z"]
 
