@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PySide6.QtPrintSupport import QPrinterInfo
@@ -44,6 +45,19 @@ class SettingsWindow(QDialog):
         if current_printer:
             self.printer_combo.setCurrentText(current_printer)
 
+        self.print_mode_combo = QComboBox()
+        self.print_mode_combo.addItem("OS driver (QPrinter)", "driver")
+        self.print_mode_combo.addItem("Raw ZPL (direct)", "raw_zpl")
+        mode_index = self.print_mode_combo.findData(settings.get("print_mode", "driver"))
+        if mode_index >= 0:
+            self.print_mode_combo.setCurrentIndex(mode_index)
+
+        self.raw_zpl_target_edit = QLineEdit(settings.get("raw_zpl_target", ""))
+        if sys.platform == "win32":
+            self.raw_zpl_target_edit.setPlaceholderText("e.g. ZPL-RAW-Printer (raw print queue name)")
+        else:
+            self.raw_zpl_target_edit.setPlaceholderText("e.g. /dev/usb/lp0")
+
         self.warehouse_table = QTableWidget(0, 2)
         self.warehouse_table.setHorizontalHeaderLabels(["Name", "Prefix"])
         for warehouse in settings.get("warehouses", []):
@@ -64,6 +78,8 @@ class SettingsWindow(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(folder_row)
         layout.addWidget(self.printer_combo)
+        layout.addWidget(self.print_mode_combo)
+        layout.addWidget(self.raw_zpl_target_edit)
         layout.addWidget(self.warehouse_table)
         layout.addLayout(warehouse_buttons)
         layout.addWidget(buttons)
@@ -100,6 +116,8 @@ class SettingsWindow(QDialog):
             "shared_folder": self.shared_folder_edit.text(),
             "default_printer": self.printer_combo.currentText(),
             "warehouses": warehouses,
+            "print_mode": self.print_mode_combo.currentData(),
+            "raw_zpl_target": self.raw_zpl_target_edit.text(),
         }
 
     def _save_and_close(self) -> None:

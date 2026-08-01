@@ -58,3 +58,30 @@ def test_offline_default_printer_is_preserved_not_overwritten(monkeypatch):
 
     assert window.printer_combo.currentText() == "Citizen CL-E300"
     assert window.get_current_settings()["default_printer"] == "Citizen CL-E300"
+
+
+def test_settings_window_prefills_print_mode_and_raw_zpl_target():
+    _app()
+    settings = {**DEFAULT_SETTINGS, "print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
+    window = SettingsWindow(settings, settings_path=None)
+    assert window.print_mode_combo.currentData() == "raw_zpl"
+    assert window.raw_zpl_target_edit.text() == "/dev/usb/lp0"
+
+
+def test_settings_window_defaults_print_mode_to_driver():
+    _app()
+    window = SettingsWindow(DEFAULT_SETTINGS, settings_path=None)
+    assert window.print_mode_combo.currentData() == "driver"
+
+
+def test_save_writes_print_mode_and_raw_zpl_target_to_disk(tmp_path):
+    _app()
+    settings_path = tmp_path / "settings.json"
+    window = SettingsWindow(DEFAULT_SETTINGS, settings_path=settings_path)
+    window.print_mode_combo.setCurrentIndex(window.print_mode_combo.findData("raw_zpl"))
+    window.raw_zpl_target_edit.setText("/dev/usb/lp0")
+    window._save_and_close()
+
+    saved = load_settings(settings_path)
+    assert saved["print_mode"] == "raw_zpl"
+    assert saved["raw_zpl_target"] == "/dev/usb/lp0"
