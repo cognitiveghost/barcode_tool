@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PIL import Image
@@ -28,3 +29,12 @@ def send_raw_windows(printer_name: str, data: bytes) -> None:
             win32print.EndDocPrinter(handle)
     finally:
         win32print.ClosePrinter(handle)
+
+
+def print_labels_zpl(images: list[Image.Image], target: str) -> None:
+    for image in images:
+        data = image_to_zpl(image).encode("ascii")
+        if sys.platform == "win32":
+            send_raw_windows(target, data)
+        else:
+            send_raw_linux(target, data)

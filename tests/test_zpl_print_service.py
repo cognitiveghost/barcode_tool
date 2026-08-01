@@ -3,7 +3,12 @@ import types
 
 from PIL import Image
 
-from app.core.zpl_print_service import image_to_zpl, send_raw_linux, send_raw_windows
+from app.core.zpl_print_service import (
+    image_to_zpl,
+    print_labels_zpl,
+    send_raw_linux,
+    send_raw_windows,
+)
 
 
 def test_image_to_zpl_returns_a_complete_zpl_block():
@@ -73,3 +78,37 @@ def test_send_raw_windows_opens_a_raw_job_and_writes_bytes(monkeypatch):
     assert calls[0][1] == "ZPL-RAW-Printer"
     assert calls[1][3] == ("ZPL label", "", "RAW")
     assert calls[3][2] == b"^XA^XZ"
+
+
+def test_print_labels_zpl_dispatches_to_linux_transport(monkeypatch):
+    monkeypatch.setattr("app.core.zpl_print_service.sys.platform", "linux")
+    sent = []
+    monkeypatch.setattr(
+        "app.core.zpl_print_service.send_raw_linux",
+        lambda target, data: sent.append((target, data)),
+    )
+    monkeypatch.setattr(
+        "app.core.zpl_print_service.image_to_zpl", lambda image: "^XA^XZ"
+    )
+    images = [Image.new("RGB", (10, 10), "white"), Image.new("RGB", (10, 10), "white")]
+
+    print_labels_zpl(images, "/dev/usb/lp0")
+
+    assert sent == [("/dev/usb/lp0", b"^XA^XZ"), ("/dev/usb/lp0", b"^XA^XZ")]
+
+
+def test_print_labels_zpl_dispatches_to_windows_transport(monkeypatch):
+    monkeypatch.setattr("app.core.zpl_print_service.sys.platform", "win32")
+    sent = []
+    monkeypatch.setattr(
+        "app.core.zpl_print_service.send_raw_windows",
+        lambda target, data: sent.append((target, data)),
+    )
+    monkeypatch.setattr(
+        "app.core.zpl_print_service.image_to_zpl", lambda image: "^XA^XZ"
+    )
+    images = [Image.new("RGB", (10, 10), "white")]
+
+    print_labels_zpl(images, "ZPL-RAW-Printer")
+
+    assert sent == [("ZPL-RAW-Printer", b"^XA^XZ")]
