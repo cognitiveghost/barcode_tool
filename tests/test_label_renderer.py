@@ -1,3 +1,5 @@
+import hashlib
+
 from PIL import Image, ImageChops, ImageDraw
 
 from app.core.fonts import load_font
@@ -159,3 +161,13 @@ def test_render_inventory_label_position_qr_uses_prefixed_data():
         "31072026", width_mm=150, height_mm=100,
     )
     assert img_a.tobytes() != img_b.tobytes()
+
+
+def test_render_inventory_label_pixel_output_is_stable():
+    img = render_inventory_label(
+        "SKU1", "Widget", "Acme", "4471", "2027-03", "H011A", "C001H011A",
+        "31072026", width_mm=150, height_mm=100, dpi=203,
+    )
+    assert hashlib.sha256(img.tobytes()).hexdigest() == (
+        "a99810c2440008dca358dd0e16ba4e5b30c5e6745864f105c522372e5bcfc4ce"
+    )
