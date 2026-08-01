@@ -6,6 +6,8 @@ from pathlib import Path
 DEFAULT_SETTINGS = {
     "shared_folder": "",
     "default_printer": "",
+    "print_mode": "driver",
+    "raw_zpl_target": "",
     "warehouses": [],
     "label_sizes": [
         {"name": "100x150mm", "width_mm": 100, "height_mm": 150},
