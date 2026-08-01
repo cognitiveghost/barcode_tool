@@ -29,6 +29,7 @@ from app.core.position_generator import (
     generate_position_codes,
 )
 from app.core.print_service import send_to_printer
+from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
 
 _LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
@@ -129,7 +130,7 @@ class PositionsModePanel(QWidget):
     def _on_print_clicked(self) -> None:
         try:
             self.print_current_labels()
-        except (ValueError, BarcodeError, OSError) as error:
+        except (ValueError, BarcodeError, OSError, *windows_print_errors()) as error:
             QMessageBox.warning(self, "Print failed", str(error))
 
     def generate(self) -> list[tuple[str, Image.Image]]:

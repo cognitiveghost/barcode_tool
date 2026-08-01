@@ -8,6 +8,7 @@ from app.core.zpl_print_service import (
     print_labels_zpl,
     send_raw_linux,
     send_raw_windows,
+    windows_print_errors,
 )
 
 
@@ -26,6 +27,20 @@ def test_send_raw_linux_writes_bytes_to_the_device_path(tmp_path):
     send_raw_linux(str(device_path), b"^XA^XZ")
 
     assert device_path.read_bytes() == b"^XA^XZ"
+
+
+def test_windows_print_errors_empty_when_pywintypes_unavailable(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pywintypes", None)
+
+    assert windows_print_errors() == ()
+
+
+def test_windows_print_errors_includes_pywintypes_error_when_available(monkeypatch):
+    fake_pywintypes = types.ModuleType("pywintypes")
+    fake_pywintypes.error = type("error", (Exception,), {})
+    monkeypatch.setitem(sys.modules, "pywintypes", fake_pywintypes)
+
+    assert windows_print_errors() == (fake_pywintypes.error,)
 
 
 def test_send_raw_windows_opens_a_raw_job_and_writes_bytes(monkeypatch):

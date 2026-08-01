@@ -26,6 +26,7 @@ from app.core.inventory_import import (
 )
 from app.core.label_renderer import render_inventory_label
 from app.core.print_service import send_to_printer
+from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
@@ -161,7 +162,7 @@ class InventoryModePanel(QWidget):
                 f"Labels printed, but the audit log entry failed: {error}\n"
                 "Do not reprint this batch.",
             )
-        except (ValueError, OSError) as error:
+        except (ValueError, OSError, *windows_print_errors()) as error:
             QMessageBox.warning(self, "Print failed", str(error))
 
     def print_checked_items(self, output_pdf_path: Path | None = None) -> None:

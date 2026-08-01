@@ -38,3 +38,12 @@ def print_labels_zpl(images: list[Image.Image], target: str) -> None:
             send_raw_windows(target, data)
         else:
             send_raw_linux(target, data)
+
+
+def windows_print_errors() -> tuple[type[Exception], ...]:
+    """Exception types raised by win32print, for UI-layer except clauses."""
+    try:
+        import pywintypes
+    except ImportError:
+        return ()
+    return (pywintypes.error,)
