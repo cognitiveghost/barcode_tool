@@ -53,6 +53,13 @@ speculative):
 - **`label_renderer.py` gets a light internal refactor**, not a rendering
   engine swap: extract the repeated QR+caption placement logic into 1-2
   helper functions. Visual output is unchanged.
+- **Mode 2.1 (position labels) also archives a PDF copy of every print to
+  the shared folder**, regardless of `print_mode` (driver or raw ZPL) —
+  raw ZPL mode has no PDF as a side effect otherwise, and this gives a
+  human-viewable/reprintable record either way. Reuses `shared_folder`
+  (same setting already used for `audit_log.csv`), no new setting. Scoped
+  to Mode 2.1 only for now, per this request — Mode 2.2 can get the same
+  treatment later if wanted, not built now.
 
 ## 3. Components
 
@@ -96,6 +103,19 @@ speculative):
   `_place_qr_with_caption(...)`), collapsing ~4x near-identical blocks.
   No visual/behavioral change.
 
+- **`app/ui/mode_positions_panel.py`** (`print_current_labels`): after
+  `send_to_printer(...)` succeeds, additionally write a PDF archive copy
+  via the existing `print_labels(images, width_mm, height_mm,
+  output_pdf_path=archive_path)` QPrinter/PDF path — an extra step, not a
+  replacement for the physical send. `archive_path` is
+  `{shared_folder}/printed_pdfs/{timestamp}_{warehouse_prefix}_{description}.pdf`,
+  reusing the `warehouse_prefix`/`description`/`shared_folder` values
+  already computed there for `append_print_log`. The `printed_pdfs/`
+  folder is created on demand (`mkdir(parents=True, exist_ok=True)`), same
+  as `append_print_log`'s existing folder handling. If `send_to_printer`
+  raises, the archive step doesn't run — nothing was actually printed, so
+  nothing is archived.
+
 ## 4. Data flow
 
 Unchanged (driver mode, default):
@@ -137,6 +157,9 @@ branches get real (non-mocked-OS) coverage without physical hardware:
 - `label_renderer.py` refactor: existing rendering tests
   (`tests/test_label_renderer.py`) must keep passing unchanged — the
   refactor must not alter pixel output.
+- `print_current_labels()` PDF archiving: assert a PDF is written under
+  `shared_folder/printed_pdfs/` after a successful print (both `print_mode`
+  values), and that no file is written when `send_to_printer` raises.
 
 ## 7. Explicitly deferred
 
@@ -148,6 +171,8 @@ branches get real (non-mocked-OS) coverage without physical hardware:
 - Printer/device auto-discovery UI (manual target entry for v1).
 - Network or Bluetooth printer connections (USB only, per confirmed
   hardware setup).
+- PDF archiving for Mode 2.2 (inventory) or any other mode — Mode 2.1 only
+  for now.
 
 ## 8. Dependencies
 
