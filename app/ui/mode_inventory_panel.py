@@ -25,7 +25,7 @@ from app.core.inventory_import import (
     items_from_csv_rows,
 )
 from app.core.label_renderer import render_inventory_label
-from app.core.print_service import print_labels
+from app.core.print_service import send_to_printer
 from app.ui.csv_import_dialog import CsvImportDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
@@ -191,11 +191,11 @@ class InventoryModePanel(QWidget):
             )
             images.append(image)
 
-        print_labels(
+        send_to_printer(
             images,
             width_mm=INVENTORY_LABEL_WIDTH_MM,
             height_mm=INVENTORY_LABEL_HEIGHT_MM,
-            printer_name=self._settings.get("default_printer") or None,
+            settings=self._settings,
             output_pdf_path=output_pdf_path,
         )
 
@@ -203,10 +203,11 @@ class InventoryModePanel(QWidget):
         Path(shared_folder).mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc).astimezone()
         debug_pdf_path = Path(shared_folder) / f"inventory_label_preview_{now:%Y%m%d_%H%M%S}.pdf"
-        print_labels(
+        send_to_printer(
             images,
             width_mm=INVENTORY_LABEL_WIDTH_MM,
             height_mm=INVENTORY_LABEL_HEIGHT_MM,
+            settings=self._settings,
             output_pdf_path=debug_pdf_path,
         )
 
