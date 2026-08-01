@@ -8,6 +8,8 @@ from PySide6.QtCore import QMarginsF, QSizeF
 from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPixmap
 from PySide6.QtPrintSupport import QPrinter
 
+from app.core.zpl_print_service import print_labels_zpl
+
 
 def _page_orientation(width_mm: float, height_mm: float) -> QPageLayout.Orientation:
     if width_mm > height_mm:
@@ -51,3 +53,19 @@ def print_labels(
         target = painter.viewport()
         painter.drawPixmap(target, pixmap, pixmap.rect())
     painter.end()
+
+
+def send_to_printer(
+    images: list[Image.Image],
+    width_mm: float,
+    height_mm: float,
+    settings: dict,
+    output_pdf_path: Path | None = None,
+) -> None:
+    if output_pdf_path is not None:
+        print_labels(images, width_mm, height_mm, output_pdf_path=output_pdf_path)
+        return
+    if settings.get("print_mode") == "raw_zpl":
+        print_labels_zpl(images, settings.get("raw_zpl_target", ""))
+        return
+    print_labels(images, width_mm, height_mm, printer_name=settings.get("default_printer") or None)

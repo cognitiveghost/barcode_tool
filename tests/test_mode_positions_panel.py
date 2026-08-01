@@ -191,7 +191,7 @@ def test_print_uses_label_size_from_generate_time_not_live_combo(monkeypatch, tm
 
     calls = []
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.print_labels",
+        "app.ui.mode_positions_panel.send_to_printer",
         lambda *a, **k: calls.append(k),
     )
     panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
@@ -333,3 +333,40 @@ def test_refresh_from_settings_rebuilds_combos():
     ]
     assert warehouse_names == ["Second"]
     assert label_size_names == ["80x80mm"]
+
+
+def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+    panel.generate()
+
+    panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
+
+    archived = list((tmp_path / "printed_pdfs").glob("*.pdf"))
+    assert len(archived) == 1
+    assert archived[0].stat().st_size > 0
+    assert "C001" in archived[0].name
+    assert "H029..H030" in archived[0].name
+
+
+def test_print_current_labels_skips_archive_when_send_to_printer_raises(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.generate()
+
+    def _boom(*a, **k):
+        raise OSError("printer offline")
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.send_to_printer", _boom)
+
+    with pytest.raises(OSError):
+        panel.print_current_labels()
+
+    assert not (tmp_path / "printed_pdfs").exists()

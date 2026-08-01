@@ -81,6 +81,47 @@ def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str
     return ellipsis
 
 
+def _place_qr_top(
+    canvas: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    data: str,
+    caption_text: str,
+    qr_x: int,
+    caption_x: int,
+    top_y: int,
+    qr_size: int,
+    font,
+    caption_max_width: int,
+    gap: int,
+) -> None:
+    qr_image = generate_qr_image(data).resize((qr_size, qr_size))
+    canvas.paste(qr_image, (qr_x, top_y))
+    caption = _fit_text(draw, caption_text, font, caption_max_width)
+    draw.text((caption_x, top_y + qr_size + gap), caption, fill="black", font=font)
+
+
+def _place_qr_bottom(
+    canvas: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    data: str,
+    caption_text: str,
+    qr_x: int,
+    caption_x: int,
+    bottom_y: int,
+    qr_size: int,
+    font,
+    caption_max_width: int,
+    gap: int,
+) -> None:
+    qr_y = bottom_y - qr_size
+    caption = _fit_text(draw, caption_text, font, caption_max_width)
+    caption_bbox = draw.textbbox((0, 0), caption, font=font)
+    caption_height = caption_bbox[3] - caption_bbox[1]
+    draw.text((caption_x, qr_y - caption_height - gap), caption, fill="black", font=font)
+    qr_image = generate_qr_image(data).resize((qr_size, qr_size))
+    canvas.paste(qr_image, (qr_x, qr_y))
+
+
 def render_inventory_label(
     sku: str,
     name: str,
@@ -118,53 +159,32 @@ def render_inventory_label(
     left_caption_max_width = primary_size - 2
 
     # SKU: top of the left column, bold caption below it.
-    sku_qr = generate_qr_image(sku).resize((primary_size, primary_size))
-    canvas.paste(sku_qr, (left_x, content_y0))
-    sku_caption = _fit_text(draw, sku, bold_font, left_caption_max_width)
-    draw.text((left_x, content_y0 + primary_size + gap), sku_caption, fill="black", font=bold_font)
+    _place_qr_top(
+        canvas, draw, sku, sku, left_x, left_x, content_y0,
+        primary_size, bold_font, left_caption_max_width, gap,
+    )
 
     # Position: bottom of the left column, bold caption above it.
-    position_qr_y = content_y0 + content_height - primary_size
-    position_caption = _fit_text(draw, position_code, bold_font, left_caption_max_width)
-    position_bbox = draw.textbbox((0, 0), position_caption, font=bold_font)
-    position_caption_height = position_bbox[3] - position_bbox[1]
-    draw.text(
-        (left_x, position_qr_y - position_caption_height - gap),
-        position_caption,
-        fill="black",
-        font=bold_font,
+    _place_qr_bottom(
+        canvas, draw, position_data, position_code, left_x, left_x,
+        content_y0 + content_height, primary_size, bold_font, left_caption_max_width, gap,
     )
-    position_qr = generate_qr_image(position_data).resize((primary_size, primary_size))
-    canvas.paste(position_qr, (left_x, position_qr_y))
 
     right_caption_max_width = secondary_size - gap
 
     # Expiry: top of the right column, caption below it. Omitted if blank.
     if expiry:
-        expiry_qr = generate_qr_image(expiry).resize((secondary_size, secondary_size))
-        canvas.paste(expiry_qr, (right_x, content_y0))
-        expiry_caption = _fit_text(draw, expiry, caption_font, right_caption_max_width)
-        draw.text(
-            (right_x + gap, content_y0 + secondary_size + gap),
-            expiry_caption,
-            fill="black",
-            font=caption_font,
+        _place_qr_top(
+            canvas, draw, expiry, expiry, right_x, right_x + gap, content_y0,
+            secondary_size, caption_font, right_caption_max_width, gap,
         )
 
     # Batch: bottom of the right column, caption above it. Omitted if blank.
     if batch:
-        batch_qr_y = content_y0 + content_height - secondary_size
-        batch_caption = _fit_text(draw, batch, caption_font, right_caption_max_width)
-        batch_bbox = draw.textbbox((0, 0), batch_caption, font=caption_font)
-        batch_caption_height = batch_bbox[3] - batch_bbox[1]
-        draw.text(
-            (right_x + gap, batch_qr_y - batch_caption_height - gap),
-            batch_caption,
-            fill="black",
-            font=caption_font,
+        _place_qr_bottom(
+            canvas, draw, batch, batch, right_x, right_x + gap,
+            content_y0 + content_height, secondary_size, caption_font, right_caption_max_width, gap,
         )
-        batch_qr = generate_qr_image(batch).resize((secondary_size, secondary_size))
-        canvas.paste(batch_qr, (right_x, batch_qr_y))
 
     # Divider lines: two verticals for the full content height, one
     # horizontal splitting the middle column only (not the QR columns).

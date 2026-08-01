@@ -6,7 +6,7 @@ from PySide6.QtGui import QPageLayout
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import QApplication
 
-from app.core.print_service import _page_orientation, print_labels
+from app.core.print_service import _page_orientation, print_labels, send_to_printer
 
 
 def _app():
@@ -91,3 +91,79 @@ def test_print_labels_produces_a_page_actually_taller_than_wide_for_portrait(tmp
     assert height_pt > width_pt
     assert width_pt == pytest.approx(100 / 25.4 * 72, abs=1)
     assert height_pt == pytest.approx(150 / 25.4 * 72, abs=1)
+
+
+def test_send_to_printer_uses_pdf_path_regardless_of_print_mode(tmp_path):
+    _app()
+    images = [Image.new("RGB", (100, 100), "white")]
+    output_path = tmp_path / "labels.pdf"
+    settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
+
+    send_to_printer(images, width_mm=68, height_mm=38, settings=settings, output_pdf_path=output_path)
+
+    assert output_path.exists()
+
+
+def test_send_to_printer_dispatches_to_raw_zpl_when_configured(monkeypatch):
+    _app()
+    images = [Image.new("RGB", (100, 100), "white")]
+    calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels_zpl",
+        lambda imgs, target: calls.append((imgs, target)),
+    )
+    settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
+
+    send_to_printer(images, width_mm=68, height_mm=38, settings=settings)
+
+    assert calls == [(images, "/dev/usb/lp0")]
+
+
+def test_send_to_printer_defaults_to_driver_mode(monkeypatch):
+    _app()
+    images = [Image.new("RGB", (100, 100), "white")]
+    calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels",
+        lambda imgs, width_mm, height_mm, **kwargs: calls.append(kwargs),
+    )
+    settings = {"print_mode": "driver", "default_printer": "Citizen CL-E300"}
+
+    send_to_printer(images, width_mm=68, height_mm=38, settings=settings)
+
+    assert calls == [{"printer_name": "Citizen CL-E300"}]
+
+
+def test_send_to_printer_treats_missing_print_mode_as_driver(monkeypatch):
+    _app()
+    images = [Image.new("RGB", (100, 100), "white")]
+    calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels",
+        lambda imgs, width_mm, height_mm, **kwargs: calls.append(kwargs),
+    )
+
+    send_to_printer(images, width_mm=68, height_mm=38, settings={})
+
+    assert calls == [{"printer_name": None}]
+
+
+def test_send_to_printer_does_not_fall_back_to_driver_when_raw_zpl_fails(monkeypatch):
+    _app()
+    images = [Image.new("RGB", (100, 100), "white")]
+    driver_calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels",
+        lambda *a, **k: driver_calls.append(True),
+    )
+
+    def _boom(imgs, target):
+        raise OSError("device not found")
+
+    monkeypatch.setattr("app.core.print_service.print_labels_zpl", _boom)
+    settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
+
+    with pytest.raises(OSError):
+        send_to_printer(images, width_mm=68, height_mm=38, settings=settings)
+
+    assert driver_calls == []

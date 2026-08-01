@@ -314,7 +314,7 @@ def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp
     def _boom(*a, **k):
         raise OSError("printer offline")
 
-    monkeypatch.setattr("app.ui.mode_inventory_panel.print_labels", _boom)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", _boom)
     log_calls = []
     monkeypatch.setattr(
         "app.ui.mode_inventory_panel.append_print_log",
@@ -341,7 +341,7 @@ def test_audit_log_failure_reports_distinct_warning_after_successful_print(monke
         raise OSError("share unavailable")
 
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.print_labels",
+        "app.ui.mode_inventory_panel.send_to_printer",
         lambda *a, **k: print_calls.append(True),
     )
     monkeypatch.setattr("app.ui.mode_inventory_panel.append_print_log", _log_boom)
@@ -407,7 +407,7 @@ def test_print_checked_items_passes_generated_date_in_ddmmyyyy_format(monkeypatc
         return Image.new("RGB", (10, 10))
 
     monkeypatch.setattr("app.ui.mode_inventory_panel.render_inventory_label", _fake_render)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.print_labels", lambda *a, **k: None)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
@@ -439,7 +439,7 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
         return Image.new("RGB", (10, 10))
 
     monkeypatch.setattr("app.ui.mode_inventory_panel.render_inventory_label", _fake_render)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.print_labels", lambda *a, **k: None)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from barcode.errors import BarcodeError
@@ -26,10 +28,16 @@ from app.core.position_generator import (
     codes_from_csv_rows,
     generate_position_codes,
 )
-from app.core.print_service import print_labels
+from app.core.print_service import send_to_printer
 from app.ui.csv_import_dialog import CsvImportDialog
 
 _LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
+
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
+
+
+def _safe_filename_component(value: str) -> str:
+    return _UNSAFE_FILENAME_CHARS.sub("_", value)
 
 POSITION_CSV_FIELDS = [
     ("position_code", "Position code (overrides corridor/number/height)"),
@@ -201,23 +209,38 @@ class PositionsModePanel(QWidget):
         # Use the size the labels were actually rendered at, not whatever the
         # combo currently shows - the user may have changed it after Generate.
         label_size = self._generated_label_size
-        printer_name = self._settings.get("default_printer") or None
 
-        print_labels(
+        send_to_printer(
             self.generated_labels,
             width_mm=label_size["width_mm"],
             height_mm=label_size["height_mm"],
-            printer_name=printer_name,
+            settings=self._settings,
             output_pdf_path=output_pdf_path,
         )
 
         warehouse_prefix = self.warehouse_combo.currentData() or ""
         shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
-        log_path = Path(shared_folder) / "audit_log.csv"
         if len(self.generated_codes) > 1:
             description = f"{self.generated_codes[0]}..{self.generated_codes[-1]}"
         else:
             description = self.generated_codes[0]
+
+        archive_dir = Path(shared_folder) / "printed_pdfs"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        archive_name = (
+            f"{timestamp}_{_safe_filename_component(warehouse_prefix)}"
+            f"_{_safe_filename_component(description)}.pdf"
+        )
+        send_to_printer(
+            self.generated_labels,
+            width_mm=label_size["width_mm"],
+            height_mm=label_size["height_mm"],
+            settings=self._settings,
+            output_pdf_path=archive_dir / archive_name,
+        )
+
+        log_path = Path(shared_folder) / "audit_log.csv"
         append_print_log(
             log_path,
             mode="positions",
