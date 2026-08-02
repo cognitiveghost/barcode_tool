@@ -120,3 +120,38 @@ def test_loading_a_second_file_replaces_column_choices(tmp_path):
         for i in range(dialog.field_combos["corridor"].count())
     ]
     assert choices == ["-- none --", "X", "Y", "Z"]
+
+
+def test_dialog_preselects_the_detected_delimiter(tmp_path):
+    _app()
+    path = tmp_path / "semicolon.csv"
+    path.write_bytes(b"sku;name\r\nSKU1;Widget\r\n")
+    dialog = CsvImportDialog(FIELDS)
+
+    dialog.load_csv(path)
+
+    assert dialog.delimiter_combo.currentData() == ";"
+
+
+def test_changing_delimiter_override_reparses_the_file(tmp_path):
+    _app()
+    path = tmp_path / "comma.csv"
+    path.write_bytes(b"sku,name\r\nSKU1,Widget\r\n")
+    dialog = CsvImportDialog(FIELDS)
+    dialog.load_csv(path)
+
+    index = dialog.delimiter_combo.findData(";")
+    dialog.delimiter_combo.setCurrentIndex(index)
+
+    assert dialog._header == ["sku,name"]  # whole line becomes one column
+
+
+def test_dialog_preselects_the_detected_encoding(tmp_path):
+    _app()
+    path = tmp_path / "cyrillic.csv"
+    path.write_bytes("sku,client\r\nSKU1,Клиент\r\n".encode("cp1251"))
+    dialog = CsvImportDialog(FIELDS)
+
+    dialog.load_csv(path)
+
+    assert dialog.encoding_combo.currentData() == "cp1251"
