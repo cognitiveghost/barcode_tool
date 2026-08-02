@@ -4,9 +4,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import pypdfium2 as pdfium
 from blabel import LabelWriter
 from PIL import Image
-import pypdfium2 as pdfium
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "templates" / "examples"
 
