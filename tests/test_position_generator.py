@@ -227,7 +227,23 @@ def test_format_position_code_rejects_non_letter_height():
         format_position_code("H", "1", "%")
 
 
-def test_height_range_does_not_span_punctuation():
-    # ord('A')..ord('z') used to walk through [ \ ] ^ _ ` and emit 58 codes.
+def test_height_range_uppercase_before_validation():
+    # Mixed-case "A" to "z" is now accepted: both uppercase to valid letters "A"-"Z"
+    # (the old code would fail before uppercasing; the fix uppercases first).
+    codes = generate_position_codes("H", "1", "1", "A", "z")
+    assert codes == ["H001A", "H001B", "H001C", "H001D", "H001E", "H001F", "H001G",
+                     "H001H", "H001I", "H001J", "H001K", "H001L", "H001M", "H001N",
+                     "H001O", "H001P", "H001Q", "H001R", "H001S", "H001T", "H001U",
+                     "H001V", "H001W", "H001X", "H001Y", "H001Z"]
+
+
+def test_generate_position_codes_rejects_multi_char_height_from():
+    # Multi-char height_from should raise ValueError, not TypeError from ord()
     with pytest.raises(ValueError):
-        generate_position_codes("H", "1", "1", "A", "z")
+        generate_position_codes("H", "1", "1", "AB")
+
+
+def test_generate_position_codes_rejects_multi_char_height_to():
+    # Multi-char height_to should raise ValueError, not TypeError from ord()
+    with pytest.raises(ValueError):
+        generate_position_codes("H", "1", "1", "A", "BB")

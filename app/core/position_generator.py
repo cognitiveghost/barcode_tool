@@ -47,12 +47,6 @@ def generate_position_codes(
 
     heights: list[str] = [""]
     if height_from is not None:
-        # Check that the range doesn't span non-letters before uppercasing
-        height_to_temp = height_from if height_to is None else height_to
-        for c in range(ord(height_from), ord(height_to_temp) + 1):
-            if chr(c).upper() not in _LETTERS:
-                raise ValueError("height range must not span non-letter characters")
-
         height_from = height_from.upper()
         height_to = height_from if height_to is None else height_to.upper()
         if height_from not in _LETTERS or height_to not in _LETTERS:
