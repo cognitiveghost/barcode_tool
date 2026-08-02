@@ -1,0 +1,37 @@
+{# APP-OWNED FILE - rewritten on every launch, your edits here will be lost.
+   Copy this folder to a sibling name and edit the copy. See ../README.txt #}
+<div class="label">
+  <div class="frame"></div>
+  <div class="divider divider-v1"></div>
+  <div class="divider divider-v2"></div>
+
+  <!-- COLUMN 1 - Article (hero) -->
+  <div class="chip chip-sku">SKU</div>
+  <div class="box qr-sku"><img src="{{ label_tools.qr_code(sku) }}"></div>
+  <div class="box val-sku" style="font-size: {{ label_tools.fit_font(sku, 45, 9.5, letter_spacing_mm=0.3) }}mm">{{ sku }}</div>
+  <div class="box client" style="font-size: {{ label_tools.fit_font(client, 45, 3) }}mm">{% if client %}{{ client }}{% endif %}</div>
+
+  <!-- COLUMN 2 - Description + notes -->
+  <div class="chip chip-desc">NAME</div>
+  <div class="box desc" style="font-size: {{ label_tools.fit_font_block(name, 41, 19, 4.6) }}mm">{{ name }}</div>
+  <div class="chip chip-notes">NOTES</div>
+  <div class="box notes">
+    <div class="note-rule note-rule-1"></div>
+    <div class="note-rule note-rule-2"></div>
+    <div class="note-text">{% if notes %}{{ notes }}{% endif %}</div>
+  </div>
+  <div class="box gen-date">{{ generated_date }}</div>
+
+  <!-- COLUMN 3 - Position / Expiry / Batch -->
+  <div class="chip chip-pos">POS</div>
+  <div class="box qr-pos"><img src="{{ label_tools.qr_code(position_data) }}"></div>
+  <div class="box val-pos" style="font-size: {{ label_tools.fit_font(position_code, 42, 3.4) }}mm">{{ position_code }}</div>
+
+  <div class="chip chip-exp">EXP</div>
+  <div class="box qr-exp">{% if expiry %}<img src="{{ label_tools.qr_code(expiry) }}">{% endif %}</div>
+  <div class="box val-exp" style="font-size: {{ label_tools.fit_font(expiry, 42, 3.4) }}mm">{% if expiry %}{{ expiry }}{% endif %}</div>
+
+  <div class="chip chip-lot">LOT</div>
+  <div class="box qr-lot">{% if batch %}<img src="{{ label_tools.qr_code(batch) }}">{% endif %}</div>
+  <div class="box val-lot" style="font-size: {{ label_tools.fit_font(batch, 42, 3.4) }}mm">{% if batch %}{{ batch }}{% endif %}</div>
+</div>

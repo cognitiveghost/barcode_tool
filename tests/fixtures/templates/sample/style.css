@@ -1,0 +1,7 @@
+@page { size: 40mm 30mm; margin: 0; }
+body { margin: 0; }
+.label {
+  box-sizing: border-box;
+  width: 40mm;
+  height: 30mm;
+}

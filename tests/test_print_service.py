@@ -6,7 +6,11 @@ from PySide6.QtGui import QPageLayout
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import QApplication
 
-from app.core.print_service import _page_orientation, print_labels, send_to_printer
+from app.core.print_service import (
+    _page_orientation,
+    print_labels,
+    send_to_printer,
+)
 
 
 def _app():
@@ -122,7 +126,26 @@ def test_send_to_printer_dispatches_to_raw_zpl_when_configured(monkeypatch):
 
     send_to_printer(images, width_mm=68, height_mm=38, settings=settings)
 
-    assert calls == [(images, "/dev/usb/lp0")]
+    assert len(calls) == 1
+    assert calls[0][1] == "/dev/usb/lp0"
+
+
+def test_send_to_printer_passes_raw_zpl_labels_through_unresampled(monkeypatch):
+    # Labels are already rendered at head resolution (DEFAULT_DPI), and ZPL
+    # maps one image pixel to one dot. Resampling here would only soften the
+    # bar edges the thermal head is about to threshold.
+    _app()
+    images = [Image.new("1", (1198, 799), 1)]
+    calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels_zpl",
+        lambda imgs, target: calls.append(imgs),
+    )
+    settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
+
+    send_to_printer(images, width_mm=150, height_mm=100, settings=settings)
+
+    assert calls[0][0] is images[0]
 
 
 def test_send_to_printer_defaults_to_driver_mode(monkeypatch):

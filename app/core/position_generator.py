@@ -92,3 +92,17 @@ def parse_position_code(code: str) -> tuple[str, str, str]:
     if int(number) > NUMBER_MAX:
         raise ValueError(f"position numbers must be at most {NUMBER_MAX}")
     return corridor, number, height
+
+
+def display_position_code(code: str) -> str:
+    """Operator-facing position: corridor - number - height, e.g. "D-002-E".
+
+    Free-form codes imported from CSV may not parse; they are shown as-is
+    rather than dropped, since the barcode still carries the real payload.
+    """
+    try:
+        corridor, number, height = parse_position_code(code)
+    except ValueError:
+        return code.upper()
+    parts = [corridor, number.zfill(NUMBER_WIDTH)] + ([height] if height else [])
+    return "-".join(parts).upper()

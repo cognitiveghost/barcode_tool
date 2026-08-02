@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import pypdfium2 as pdfium
+from blabel import LabelWriter
+from PIL import Image
+
+from app.core import label_tools
+
+EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "templates" / "examples"
+FONT_CSS = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "fonts.css"
+
+# The label heads in the field are 203 dpi, so rendering at 203 maps one
+# image pixel to one dot - no resampling anywhere between here and the head.
+# Thermal heads are bilevel, so the greyscale render is thresholded here
+# rather than left for the driver to dither.
+DEFAULT_DPI = 203
+
+SEEDED_FILES = ("template.html", "style.css", "meta.json")
+
+
+@dataclass(frozen=True)
+class TemplatePreset:
+    name: str
+    mode: str
+    width_mm: float
+    height_mm: float
+    template_path: Path
+    stylesheet_path: Path
+
+
+def list_presets(shared_folder: Path, mode: str) -> list[TemplatePreset]:
+    mode_dir = Path(shared_folder) / "templates" / mode
+    _seed_examples(mode_dir, mode)
+    if not mode_dir.exists():
+        return []
+
+    presets = []
+    for preset_dir in sorted(p for p in mode_dir.iterdir() if p.is_dir()):
+        meta_path = preset_dir / "meta.json"
+        if not meta_path.exists():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            preset = TemplatePreset(
+                name=meta["name"],
+                mode=mode,
+                width_mm=meta["width_mm"],
+                height_mm=meta["height_mm"],
+                template_path=preset_dir / "template.html",
+                stylesheet_path=preset_dir / "style.css",
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            # These files are hand-edited in a folder several machines share.
+            # One typo must cost that preset, not everyone else's app launch.
+            continue
+        presets.append(preset)
+    return presets
+
+
+def _seed_examples(mode_dir: Path, mode: str) -> None:
+    """Refresh the app-owned "default" preset from the shipped examples.
+
+    Rewritten on every call so shipped template fixes reach folders seeded by
+    an older build. Customisations belong in a sibling folder, which is never
+    touched - the seeded README says so, as do the file headers.
+
+    Best-effort: a read-only or offline shared folder must not stop the app
+    from listing the presets that are already there.
+    """
+    example_dir = EXAMPLES_ROOT / mode / "default"
+    if not example_dir.exists():
+        return
+    target_dir = mode_dir / "default"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for filename in SEEDED_FILES:
+            _write_if_changed(
+                target_dir / filename, (example_dir / filename).read_text(encoding="utf-8")
+            )
+        _write_if_changed(
+            mode_dir / "README.txt", (EXAMPLES_ROOT / "README.txt").read_text(encoding="utf-8")
+        )
+    except OSError:
+        return
+
+
+def _write_if_changed(path: Path, content: str) -> None:
+    # write_text truncates first, so an unchanged rewrite is a window where a
+    # second machine reading this shared folder sees a half-written file.
+    if path.exists() and path.read_text(encoding="utf-8") == content:
+        return
+    path.write_text(content, encoding="utf-8")
+
+
+def render_records(
+    preset: TemplatePreset,
+    records: list[dict],
+    dpi: int = DEFAULT_DPI,
+) -> list[Image.Image]:
+    writer = LabelWriter(
+        str(preset.template_path),
+        default_stylesheets=(str(FONT_CSS), str(preset.stylesheet_path)),
+        items_per_page=1,
+        encoding="utf-8",
+        label_tools=label_tools,
+    )
+    pdf_bytes = writer.write_labels(records, target="@memory")
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    images = []
+    for page in pdf:
+        bitmap = page.render(scale=dpi / 72, grayscale=True)
+        images.append(bitmap.to_pil().convert("1", dither=Image.Dither.NONE))
+    return images

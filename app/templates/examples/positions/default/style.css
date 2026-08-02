@@ -1,0 +1,55 @@
+/* APP-OWNED FILE - rewritten on every launch, your edits here will be lost.
+   Copy this folder to a sibling name and edit the copy. See ../README.txt */
+@page { size: 150mm 100mm; margin: 0; }
+html, body { margin: 0; padding: 0; }
+
+/* Absolute mm boxes throughout: WeasyPrint's flexbox does not resolve
+   percentage heights reliably, and a label whose blocks drift is a label
+   the thermal head cuts off. */
+.label {
+  position: relative;
+  box-sizing: border-box;
+  width: 150mm;
+  height: 100mm;
+  background: #fff;
+  color: #000;
+  font-family: "JetBrains Mono", monospace;
+  overflow: hidden;
+}
+
+.label > div {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-align: center;
+  line-height: 1;
+}
+
+/* operator text */
+.user-text {
+  left: 3mm; top: 3mm; width: 144mm; height: 15mm;
+  font-weight: 700;
+  letter-spacing: 0.3mm;
+}
+
+/* barcode zone - framed, ~1.5mm clear of the physical edge */
+.barcode-zone {
+  left: 3mm; top: 20mm; width: 144mm; height: 47mm;
+  border: 0.4mm solid #000;
+}
+.barcode {
+  width: 136mm;
+  height: 39mm;
+}
+
+/* position - the largest element, inverted so it reads across the aisle */
+.position-name {
+  left: 3mm; top: 71mm; width: 144mm; height: 26mm;
+  background: #000;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 1mm;
+}

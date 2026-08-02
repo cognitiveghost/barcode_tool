@@ -2,6 +2,7 @@ import pytest
 
 from app.core.position_generator import (
     codes_from_csv_rows,
+    display_position_code,
     format_position_code,
     generate_position_codes,
     parse_position_code,
@@ -167,3 +168,19 @@ def test_parse_position_code_rejects_trailing_newline():
 def test_parse_position_code_rejects_non_ascii_digits():
     with pytest.raises(ValueError):
         parse_position_code("H٠١١A")  # Arabic-Indic digits, not "011"
+
+
+def test_display_position_code_splits_corridor_number_and_height():
+    assert display_position_code("d002e") == "D-002-E"
+
+
+def test_display_position_code_omits_the_height_when_there_is_none():
+    assert display_position_code("h056") == "H-056"
+
+
+def test_display_position_code_pads_the_number():
+    assert display_position_code("A1A") == "A-001-A"
+
+
+def test_display_position_code_passes_unparseable_csv_codes_through():
+    assert display_position_code("free-form") == "FREE-FORM"

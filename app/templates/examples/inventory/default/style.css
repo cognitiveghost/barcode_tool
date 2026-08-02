@@ -1,0 +1,74 @@
+/* APP-OWNED FILE - rewritten on every launch, your edits here will be lost.
+   Copy this folder to a sibling name and edit the copy. See ../README.txt */
+@page { size: 150mm 100mm; margin: 0; }
+html, body { margin: 0; padding: 0; }
+
+.label {
+  position: relative;
+  box-sizing: border-box;
+  width: 150mm;
+  height: 100mm;
+  background: #fff;
+  color: #000;
+  font-family: "JetBrains Mono", monospace;
+  overflow: hidden;
+}
+
+.box  { position: absolute; box-sizing: border-box; display: flex; overflow: hidden; }
+.box img { width: 100%; height: 100%; }
+.divider { position: absolute; background: #000; }
+
+/* frame stays inside the ~10px (1.25mm) thermal safe margin */
+.frame { position: absolute; left: 1.5mm; top: 1.5mm; width: 147mm; height: 97mm; border: 0.4mm solid #000; box-sizing: border-box; }
+.divider-v1 { left: 52mm;  top: 3mm; width: 0.9mm; height: 94mm; }
+.divider-v2 { left: 101mm; top: 3mm; width: 0.9mm; height: 94mm; }
+
+/* standardized field caption - inverted bar, the shared style for every code */
+.chip {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  color: #fff;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.35mm;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* COLUMN 1 - Article hero */
+.chip-sku { left: 3.5mm; top: 3.5mm; width: 47mm; height: 7mm; font-size: 3.9mm; }
+.qr-sku   { left: 4.5mm; top: 12mm;  width: 45mm; height: 45mm; align-items: center; justify-content: center; }
+.val-sku  { left: 3.5mm; top: 58mm;  width: 47mm; height: 14mm; align-items: center; justify-content: center; font-weight: 700; letter-spacing: 0.3mm; white-space: nowrap; }
+.client   { left: 3.5mm; top: 89mm;  width: 47mm; height: 7mm;  align-items: center; justify-content: center; border-top: 0.3mm solid #000; color: #000; white-space: nowrap; }
+
+/* COLUMN 2 - description + notes */
+.chip-desc  { left: 55mm; top: 3.5mm; width: 43mm; height: 7mm; font-size: 4mm; }
+.desc       { left: 55mm; top: 12mm;  width: 43mm; height: 20mm; flex-direction: column; align-items: flex-start; justify-content: flex-start; font-weight: 700; line-height: 1.25; text-align: left; word-wrap: break-word; }
+.chip-notes { left: 55mm; top: 35mm;  width: 43mm; height: 7mm; font-size: 3.6mm; }
+
+/* three writing sectors, drawn as rules - WeasyPrint renders a hairline
+   background-gradient as a solid fill, which blacked the whole box out */
+.notes      { left: 55mm; top: 44mm;  width: 43mm; height: 44mm; border: 0.3mm solid #000; }
+.note-rule  { position: absolute; left: 0; width: 42.4mm; height: 0.25mm; background: #000; }
+.note-rule-1 { top: 14.6mm; }
+.note-rule-2 { top: 29.2mm; }
+.note-text  { position: absolute; left: 1.5mm; top: 1mm; width: 39.4mm; height: 12.5mm; overflow: hidden; font-size: 4mm; line-height: 1.2; }
+
+.gen-date   { left: 55mm; top: 90mm;  width: 43mm; height: 6mm; align-items: center; justify-content: flex-end; font-size: 3mm; }
+
+/* COLUMN 3 - three secondary codes, all with the same caption style */
+.chip-pos { left: 104mm; top: 3mm;   width: 43.5mm; height: 5.5mm; font-size: 3.2mm; }
+.qr-pos   { left: 115.75mm; top: 9mm; width: 20mm; height: 20mm; align-items: center; justify-content: center; }
+.val-pos  { left: 104mm; top: 29mm;  width: 43.5mm; height: 4.5mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }
+
+.chip-exp { left: 104mm; top: 34.5mm; width: 43.5mm; height: 5.5mm; font-size: 3.2mm; }
+.qr-exp   { left: 115.75mm; top: 40.5mm; width: 20mm; height: 20mm; align-items: center; justify-content: center; }
+.val-exp  { left: 104mm; top: 60.5mm; width: 43.5mm; height: 4.5mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }
+
+.chip-lot { left: 104mm; top: 66mm;  width: 43.5mm; height: 5.5mm; font-size: 3.2mm; }
+.qr-lot   { left: 115.75mm; top: 72mm; width: 20mm; height: 20mm; align-items: center; justify-content: center; }
+.val-lot  { left: 104mm; top: 92mm;  width: 43.5mm; height: 4.5mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }

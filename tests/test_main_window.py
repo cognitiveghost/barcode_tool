@@ -1,3 +1,4 @@
+import pytest
 from PySide6.QtWidgets import QApplication
 
 import app.ui.main_window as main_window_module
@@ -7,6 +8,20 @@ from app.ui.main_window import MainWindow
 
 def _app():
     return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture(autouse=True)
+def _isolated_settings_dir(monkeypatch, tmp_path):
+    # MainWindow (and the panels it constructs) fall back to the real
+    # default_settings_path() whenever shared_folder is unset; redirect all
+    # three references into tmp_path so tests never touch (or seed template
+    # presets into) the developer's actual ~/.barcode_tool directory.
+    for module in (
+        "app.ui.main_window",
+        "app.ui.mode_positions_panel",
+        "app.ui.mode_inventory_panel",
+    ):
+        monkeypatch.setattr(f"{module}.default_settings_path", lambda: tmp_path / "settings.json")
 
 
 def test_main_window_title():
@@ -31,7 +46,7 @@ def test_open_settings_refreshes_positions_panel_combos(monkeypatch, tmp_path):
     window._settings_path = tmp_path / "settings.json"
     save_settings(
         window._settings_path,
-        {"warehouses": [{"name": "New", "prefix": "C999"}], "label_sizes": []},
+        {"warehouses": [{"name": "New", "prefix": "C999"}]},
     )
 
     class FakeSettingsDialog:
@@ -58,7 +73,7 @@ def test_open_settings_refreshes_inventory_panel_combos(monkeypatch, tmp_path):
     window._settings_path = tmp_path / "settings.json"
     save_settings(
         window._settings_path,
-        {"warehouses": [{"name": "New", "prefix": "C999"}], "label_sizes": []},
+        {"warehouses": [{"name": "New", "prefix": "C999"}]},
     )
 
     class FakeSettingsDialog:

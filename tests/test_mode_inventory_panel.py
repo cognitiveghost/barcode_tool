@@ -1,11 +1,14 @@
 import csv
+import json
 import re
+from pathlib import Path
 
 import pytest
 from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from app.core import print_service
 from app.ui.mode_inventory_panel import (
     TABLE_COLUMNS,
     InventoryModePanel,
@@ -19,6 +22,33 @@ SETTINGS = {
 
 def _app():
     return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture(autouse=True)
+def _isolated_settings_dir(monkeypatch, tmp_path):
+    # Prevents the shared_folder="" fallback path from touching the real
+    # ~/.barcode_tool directory (and seeding example templates into it)
+    # during tests.
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.default_settings_path",
+        lambda: tmp_path / "settings.json",
+    )
+
+
+def _write_preset(
+    shared_folder: Path, slug: str, name: str, width_mm: float, height_mm: float
+) -> None:
+    preset_dir = Path(shared_folder) / "templates" / "inventory" / slug
+    preset_dir.mkdir(parents=True)
+    (preset_dir / "meta.json").write_text(
+        json.dumps({"name": name, "width_mm": width_mm, "height_mm": height_mm})
+    )
+    (preset_dir / "template.html").write_text(
+        '<div><img src="{{ label_tools.qr_code(sku) }}"><div>{{ name }}</div></div>'
+    )
+    (preset_dir / "style.css").write_text(
+        f"@page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}"
+    )
 
 
 def test_load_items_populates_table():
@@ -175,14 +205,22 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     assert len(warnings) == 1
 
 
-def test_refresh_from_settings_rebuilds_combos():
+def test_refresh_from_settings_rebuilds_combos(tmp_path):
     _app()
+    _write_preset(tmp_path, "a", "80x80mm", 80, 80)
     panel = InventoryModePanel(SETTINGS)
 
-    panel.refresh_from_settings({"warehouses": [{"name": "Second", "prefix": "C002"}]})
+    panel.refresh_from_settings(
+        {
+            "warehouses": [{"name": "Second", "prefix": "C002"}],
+            "shared_folder": str(tmp_path),
+        }
+    )
 
     warehouse_names = [panel.warehouse_combo.itemText(i) for i in range(panel.warehouse_combo.count())]
+    preset_names = [panel.preset_combo.itemText(i) for i in range(panel.preset_combo.count())]
     assert warehouse_names == ["Second"]
+    assert preset_names == ["80x80mm", "Default 150x100mm"]
 
 
 def test_print_checked_items_writes_pdf_and_log(tmp_path):
@@ -240,8 +278,25 @@ def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
     assert (shared_folder / "audit_log.csv").exists()
 
 
-def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_path(tmp_path):
+def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_path(
+    monkeypatch, tmp_path
+):
     _app()
+    # Without an output path the first send_to_printer falls through to driver
+    # mode and QPrinter binds the *system default printer*. On a Linux runner
+    # there is none and Qt no-ops; on Windows it is "Microsoft Print to PDF",
+    # which opens a modal Save As dialog and blocks the whole run - this test
+    # is what has been hanging the Windows CI job until its 6h timeout. Only
+    # the driver leg is stubbed, so the debug PDF below is still written for real.
+    real_print_labels = print_service.print_labels
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels",
+        lambda images, width_mm, height_mm, **kwargs: (
+            real_print_labels(images, width_mm, height_mm, **kwargs)
+            if kwargs.get("output_pdf_path")
+            else None
+        ),
+    )
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = InventoryModePanel(settings)
     panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
@@ -394,7 +449,7 @@ def test_client_column_populated_from_item():
     assert panel.items_table.item(0, client_column).text() == "Acme Corp"
 
 
-def test_print_checked_items_passes_generated_date_in_ddmmyyyy_format(monkeypatch, tmp_path):
+def test_print_checked_items_passes_generated_date_as_yyyy_mm_dd(monkeypatch, tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = InventoryModePanel(settings)
@@ -402,17 +457,17 @@ def test_print_checked_items_passes_generated_date_in_ddmmyyyy_format(monkeypatc
 
     render_calls = []
 
-    def _fake_render(*args, **kwargs):
-        render_calls.append(args)
-        return Image.new("RGB", (10, 10))
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(records)
+        return [Image.new("RGB", (10, 10)) for _ in records]
 
-    monkeypatch.setattr("app.ui.mode_inventory_panel.render_inventory_label", _fake_render)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
     monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
-    generated_date = render_calls[0][7]
-    assert re.fullmatch(r"\d{8}", generated_date)
+    generated_date = render_calls[0][0]["generated_date"]
+    assert re.fullmatch(r"\d{4}/\d{2}/\d{2}", generated_date)
 
 
 def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, tmp_path):
@@ -434,17 +489,22 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
 
     render_calls = []
 
-    def _fake_render(*args, **kwargs):
-        render_calls.append(args)
-        return Image.new("RGB", (10, 10))
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(records)
+        return [Image.new("RGB", (10, 10)) for _ in records]
 
-    monkeypatch.setattr("app.ui.mode_inventory_panel.render_inventory_label", _fake_render)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
     monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
-    sku, name, client, batch, expiry, position_code, position_data = render_calls[0][:7]
-    assert (sku, name, client, batch, expiry, position_code) == (
-        "SKU1", "Widget", "Acme Corp", "4471", "2027-03", "H011A",
-    )
-    assert position_data == "C001H011A"  # warehouse prefix + position_code
+    record = render_calls[0][0]
+    assert (
+        record["sku"],
+        record["name"],
+        record["client"],
+        record["batch"],
+        record["expiry"],
+        record["position_code"],
+    ) == ("SKU1", "Widget", "Acme Corp", "4471", "2027-03", "H-011-A")
+    assert record["position_data"] == "C001H011A"  # warehouse prefix + raw position_code
