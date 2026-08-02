@@ -22,6 +22,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0
+      - name: Install Pango for WeasyPrint (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          C:\msys64\usr\bin\pacman.exe -S --noconfirm --needed mingw-w64-x86_64-pango
+          echo WEASYPRINT_DLL_DIRECTORIES=C:\msys64\mingw64\bin>> %GITHUB_ENV%
       - run: pip install -r requirements.txt
       - run: pytest -v
 
