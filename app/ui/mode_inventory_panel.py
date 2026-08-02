@@ -101,6 +101,18 @@ class InventoryModePanel(QWidget):
         for preset in list_presets(Path(shared_folder), "inventory"):
             self.preset_combo.addItem(preset.name, preset)
 
+        if self.preset_combo.count() == 0:
+            self._warn_no_presets(shared_folder)
+
+    def _warn_no_presets(self, shared_folder) -> None:
+        window = self.window()
+        if not hasattr(window, "statusBar"):
+            return  # not embedded in a QMainWindow (e.g. a standalone test)
+        window.statusBar().showMessage(
+            f"No label templates found in '{shared_folder}' - check the "
+            "shared folder's templates directory or your permissions."
+        )
+
     def load_items(self, rows: list[dict[str, str]]) -> list[InventoryItem]:
         items, skipped_rows = items_from_csv_rows(rows)
         if not items:

@@ -33,14 +33,36 @@ class TemplatePreset:
     stylesheet_path: Path
 
 
+_seeded_mode_dirs: set[str] = set()
+
+
 def list_presets(shared_folder: Path, mode: str) -> list[TemplatePreset]:
     mode_dir = Path(shared_folder) / "templates" / mode
-    _seed_examples(mode_dir, mode)
+    # ponytail: seeds each mode_dir once per process instead of on every
+    # panel construction and every settings save - cuts the repeated
+    # multi-file-op cost against a possibly-slow shared folder. Does NOT
+    # make the first seed non-blocking: a genuinely offline share still
+    # stalls MainWindow construction once per process, since this runs
+    # before the Qt event loop starts. Upgrade path: defer the first seed
+    # via a background thread or QTimer.singleShot once the panels no
+    # longer need presets populated synchronously in their own unit tests.
+    key = str(mode_dir)
+    if key not in _seeded_mode_dirs:
+        _seed_examples(mode_dir, mode)
+        _seeded_mode_dirs.add(key)
+
     if not mode_dir.exists():
         return []
 
+    try:
+        preset_dirs = sorted(p for p in mode_dir.iterdir() if p.is_dir())
+    except OSError:
+        # A shared folder that goes unreadable between the mkdir above and
+        # here must degrade to "no presets found", not crash app startup.
+        return []
+
     presets = []
-    for preset_dir in sorted(p for p in mode_dir.iterdir() if p.is_dir()):
+    for preset_dir in preset_dirs:
         meta_path = preset_dir / "meta.json"
         if not meta_path.exists():
             continue

@@ -119,6 +119,33 @@ def test_list_presets_survives_a_read_only_shared_folder(tmp_path):
     assert [p.name for p in presets] == ["Default 150x100mm"]
 
 
+def test_seeding_only_happens_once_per_process_per_mode_dir(tmp_path):
+    list_presets(tmp_path, "positions")
+    template = tmp_path / "templates" / "positions" / "default" / "template.html"
+    template.write_text("<div>CHANGED_AFTER_FIRST_SEED</div>", encoding="utf-8")
+
+    list_presets(tmp_path, "positions")
+
+    # A second call must not reseed - the manual change must survive.
+    assert "CHANGED_AFTER_FIRST_SEED" in template.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, and root ignores them",
+)
+def test_list_presets_survives_an_unreadable_mode_dir(tmp_path):
+    list_presets(tmp_path, "positions")  # seed once, successfully
+    mode_dir = tmp_path / "templates" / "positions"
+    mode_dir.chmod(0)  # no read/execute - iterdir() will raise
+    try:
+        presets = list_presets(tmp_path, "positions")
+    finally:
+        mode_dir.chmod(stat.S_IRWXU)
+
+    assert presets == []
+
+
 def test_list_presets_skips_a_preset_with_malformed_meta(tmp_path):
     # meta.json is hand-edited in a folder several machines share - one typo
     # must cost that preset, not everyone else's app launch.

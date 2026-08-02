@@ -1,5 +1,5 @@
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 
 import app.ui.main_window as main_window_module
 from app.core.config import DEFAULT_SETTINGS, save_settings
@@ -33,11 +33,46 @@ def test_main_window_title():
 def test_main_window_hosts_positions_and_inventory_tabs():
     _app()
     window = MainWindow()
-    assert window.centralWidget() is window.tabs
+    assert window.tabs.parentWidget() is window.centralWidget()
     assert window.tabs.widget(0) is window.positions_panel
     assert window.tabs.widget(1) is window.inventory_panel
     assert window.tabs.tabText(0) == "Positions"
     assert window.tabs.tabText(1) == "Inventory"
+
+
+def test_banner_shown_when_no_shared_folder_configured():
+    _app()
+    window = MainWindow()
+    assert not window._share_banner.isHidden()
+
+
+def test_banner_hidden_when_shared_folder_configured(tmp_path):
+    _app()
+    save_settings(tmp_path / "settings.json", {"shared_folder": str(tmp_path)})
+
+    window = MainWindow()
+
+    assert window._share_banner.isHidden()
+
+
+def test_banner_dismiss_button_hides_it():
+    _app()
+    window = MainWindow()
+
+    window._share_banner._dismiss_button.click()
+
+    assert window._share_banner.isHidden()
+
+
+def test_open_settings_button_on_banner_opens_settings(monkeypatch):
+    _app()
+    calls = []
+    monkeypatch.setattr(main_window_module.MainWindow, "_open_settings", lambda self: calls.append(True))
+
+    window = MainWindow()
+    window._share_banner._open_button.click()
+
+    assert calls == [True]
 
 
 def test_open_settings_refreshes_positions_panel_combos(monkeypatch, tmp_path):

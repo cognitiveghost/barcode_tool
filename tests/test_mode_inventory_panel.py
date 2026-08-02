@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.core import print_service
 from app.ui.mode_inventory_panel import (
@@ -221,6 +221,27 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
     preset_names = [panel.preset_combo.itemText(i) for i in range(panel.preset_combo.count())]
     assert warehouse_names == ["Second"]
     assert preset_names == ["80x80mm", "Default 150x100mm"]
+
+
+def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
+    _app()
+    monkeypatch.setattr("app.ui.mode_inventory_panel.list_presets", lambda *a, **k: [])
+
+    panel = InventoryModePanel(SETTINGS)  # constructed standalone, no QMainWindow
+
+    assert panel.preset_combo.count() == 0
+
+
+def test_refresh_shows_status_bar_warning_when_no_presets_found(monkeypatch, tmp_path):
+    _app()
+    monkeypatch.setattr("app.ui.mode_inventory_panel.list_presets", lambda *a, **k: [])
+    window = QMainWindow()
+    panel = InventoryModePanel(SETTINGS)
+    window.setCentralWidget(panel)
+
+    panel.refresh_from_settings({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    assert window.statusBar().currentMessage() != ""
 
 
 def test_print_checked_items_writes_pdf_and_log(tmp_path):

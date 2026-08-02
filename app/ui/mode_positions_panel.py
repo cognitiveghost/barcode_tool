@@ -124,6 +124,18 @@ class PositionsModePanel(QWidget):
         for preset in list_presets(Path(shared_folder), "positions"):
             self.preset_combo.addItem(preset.name, preset)
 
+        if self.preset_combo.count() == 0:
+            self._warn_no_presets(shared_folder)
+
+    def _warn_no_presets(self, shared_folder) -> None:
+        window = self.window()
+        if not hasattr(window, "statusBar"):
+            return  # not embedded in a QMainWindow (e.g. a standalone test)
+        window.statusBar().showMessage(
+            f"No label templates found in '{shared_folder}' - check the "
+            "shared folder's templates directory or your permissions."
+        )
+
     def _on_generate_clicked(self) -> None:
         try:
             self.generate()

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.ui.mode_positions_panel import ArchiveError, PositionsModePanel
 
@@ -335,6 +335,27 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
     ]
     assert warehouse_names == ["Second"]
     assert preset_names == ["80x80mm", "Default 150x100mm"]
+
+
+def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
+    _app()
+    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+
+    panel = PositionsModePanel(SETTINGS)  # constructed standalone, no QMainWindow
+
+    assert panel.preset_combo.count() == 0
+
+
+def test_refresh_shows_status_bar_warning_when_no_presets_found(monkeypatch, tmp_path):
+    _app()
+    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+    window = QMainWindow()
+    panel = PositionsModePanel(SETTINGS)
+    window.setCentralWidget(panel)
+
+    panel.refresh_from_settings({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    assert window.statusBar().currentMessage() != ""
 
 
 def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):
