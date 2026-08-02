@@ -287,3 +287,17 @@ def test_shipped_default_actually_applies_the_bundled_font(tmp_path, monkeypatch
     without_font = render_records(preset, [record])[0]
 
     assert with_font.tobytes() != without_font.tobytes()
+
+
+def test_render_records_raises_when_meta_size_does_not_match_rendered_page():
+    mismatched_preset = TemplatePreset(
+        name="Mismatched",
+        mode="positions",
+        width_mm=100,  # fixture's style.css @page is 40mm x 30mm (4:3);
+        height_mm=100,  # this claims 1:1 - well past the ~1% tolerance.
+        template_path=FIXTURE_DIR / "template.html",
+        stylesheet_path=FIXTURE_DIR / "style.css",
+    )
+
+    with pytest.raises(ValueError, match="Mismatched"):
+        render_records(mismatched_preset, [{"code": "A1", "label": "A1"}])

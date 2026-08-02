@@ -178,7 +178,9 @@ class PositionsModePanel(QWidget):
         return results
 
     def _render_labels(self, codes: list[str]) -> list[tuple[str, Image.Image]]:
-        warehouse_prefix = self.warehouse_combo.currentData() or ""
+        warehouse_prefix = self.warehouse_combo.currentData()
+        if not warehouse_prefix:
+            raise ValueError("No warehouse selected - add one in Settings first")
         preset: TemplatePreset | None = self.preset_combo.currentData()
         if preset is None:
             raise ValueError(

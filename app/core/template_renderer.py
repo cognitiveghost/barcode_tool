@@ -115,4 +115,20 @@ def render_records(
     for page in pdf:
         bitmap = page.render(scale=dpi / 72, grayscale=True)
         images.append(bitmap.to_pil().convert("1", dither=Image.Dither.NONE))
+
+    if images:
+        _check_aspect_ratio(preset, images[0])
+
     return images
+
+
+def _check_aspect_ratio(preset: TemplatePreset, image: Image.Image) -> None:
+    meta_ratio = preset.width_mm / preset.height_mm
+    rendered_ratio = image.width / image.height
+    if abs(rendered_ratio - meta_ratio) / meta_ratio > 0.01:
+        raise ValueError(
+            f"Template '{preset.name}' meta.json size "
+            f"({preset.width_mm}x{preset.height_mm}mm) does not match the "
+            "rendered page size from the template's CSS @page rule - "
+            "check that meta.json and style.css agree."
+        )

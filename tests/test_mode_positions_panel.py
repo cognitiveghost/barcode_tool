@@ -389,3 +389,21 @@ def test_print_current_labels_skips_archive_when_send_to_printer_raises(monkeypa
         panel.print_current_labels()
 
     assert not (tmp_path / "printed_pdfs").exists()
+
+
+def test_generate_without_warehouse_raises():
+    _app()
+    panel = PositionsModePanel({**SETTINGS, "warehouses": []})
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    with pytest.raises(ValueError, match="warehouse"):
+        panel.generate()
+
+
+def test_generate_from_rows_without_warehouse_raises():
+    _app()
+    panel = PositionsModePanel({**SETTINGS, "warehouses": []})
+
+    with pytest.raises(ValueError, match="warehouse"):
+        panel.generate_from_rows([{"corridor": "H", "number": "029"}])
