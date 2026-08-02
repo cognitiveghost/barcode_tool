@@ -33,11 +33,10 @@ def test_read_csv_empty_file_returns_empty_header_and_rows(tmp_path):
 
 
 def test_apply_mapping_builds_dicts_by_target_field():
-    header = ["Corridor", "Number", "Height"]
     rows = [["H", "029", "A"], ["H", "030", "B"]]
-    mapping = {"corridor": "Corridor", "number": "Number", "height": "Height"}
+    mapping = {"corridor": 0, "number": 1, "height": 2}
 
-    result = apply_mapping(header, rows, mapping)
+    result = apply_mapping(rows, mapping)
 
     assert result == [
         {"corridor": "H", "number": "029", "height": "A"},
@@ -46,33 +45,32 @@ def test_apply_mapping_builds_dicts_by_target_field():
 
 
 def test_apply_mapping_unmapped_field_is_empty_string():
-    header = ["Corridor", "Number"]
     rows = [["H", "029"]]
-    mapping = {"corridor": "Corridor", "number": "Number", "height": None}
+    mapping = {"corridor": 0, "number": 1, "height": None}
 
-    result = apply_mapping(header, rows, mapping)
+    result = apply_mapping(rows, mapping)
 
     assert result == [{"corridor": "H", "number": "029", "height": ""}]
 
 
-def test_apply_mapping_missing_column_name_is_empty_string():
-    header = ["Corridor", "Number"]
-    rows = [["H", "029"]]
-    mapping = {"corridor": "Corridor", "number": "Number", "height": "Nonexistent"}
-
-    result = apply_mapping(header, rows, mapping)
-
-    assert result == [{"corridor": "H", "number": "029", "height": ""}]
-
-
-def test_apply_mapping_short_row_resolves_to_empty_string():
-    header = ["Corridor", "Number", "Height"]
+def test_apply_mapping_index_past_end_of_row_is_empty_string():
     rows = [["H", "029"]]  # missing the Height cell
-    mapping = {"corridor": "Corridor", "number": "Number", "height": "Height"}
+    mapping = {"corridor": 0, "number": 1, "height": 2}
 
-    result = apply_mapping(header, rows, mapping)
+    result = apply_mapping(rows, mapping)
 
     assert result == [{"corridor": "H", "number": "029", "height": ""}]
+
+
+def test_apply_mapping_resolves_duplicate_header_names_by_index():
+    # header ['code', 'name', 'code'] used to resolve both 'code' fields to
+    # column 0 via header.index(), so the third column was unreachable.
+    rows = [["A1", "Widget", "B2"]]
+    mapping = {"sku": 0, "name": 1, "alt_sku": 2}
+
+    result = apply_mapping(rows, mapping)
+
+    assert result == [{"sku": "A1", "name": "Widget", "alt_sku": "B2"}]
 
 
 def test_read_csv_decodes_cp1251_cyrillic_content(tmp_path):

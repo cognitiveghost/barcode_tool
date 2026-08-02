@@ -105,11 +105,21 @@ class CsvImportDialog(QDialog):
             self.encoding_combo.setCurrentIndex(index)
         self.encoding_combo.blockSignals(False)
 
+        seen: dict[str, int] = {}
+        for name in self._header:
+            seen[name] = seen.get(name, 0) + 1
+
         for combo in self.field_combos.values():
             combo.blockSignals(True)
             combo.clear()
-            combo.addItem(NONE_OPTION)
-            combo.addItems(self._header)
+            combo.addItem(NONE_OPTION, None)
+            for index, name in enumerate(self._header):
+                combo.addItem(name, index)
+            # Repeated header names are indistinguishable in the dropdown,
+            # so show the column number on the duplicates only.
+            for index, name in enumerate(self._header):
+                if seen[name] > 1:
+                    combo.setItemText(index + 1, f"{name} (col {index + 1})")
             combo.blockSignals(False)
         self._refresh_preview()
 
@@ -130,15 +140,11 @@ class CsvImportDialog(QDialog):
             return
         self._apply_loaded_csv(header, rows, delimiter, encoding)
 
-    def _current_mapping(self) -> dict[str, str | None]:
-        mapping = {}
-        for name, combo in self.field_combos.items():
-            text = combo.currentText()
-            mapping[name] = None if text == NONE_OPTION else text
-        return mapping
+    def _current_mapping(self) -> dict[str, int | None]:
+        return {name: combo.currentData() for name, combo in self.field_combos.items()}
 
     def get_mapped_rows(self) -> list[dict[str, str]]:
-        return apply_mapping(self._header, self._rows, self._current_mapping())
+        return apply_mapping(self._rows, self._current_mapping())
 
     def _refresh_preview(self) -> None:
         mapped_rows = self.get_mapped_rows()[:PREVIEW_ROW_LIMIT]

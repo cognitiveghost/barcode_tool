@@ -199,3 +199,18 @@ def test_failed_override_leaves_previous_parse_intact(tmp_path, monkeypatch):
     assert len(warnings) == 1
     assert dialog._header == previous_header
     assert dialog._rows == previous_rows
+
+
+def test_duplicate_header_names_are_selectable_by_column(tmp_path):
+    _app()
+    path = tmp_path / "dupes.csv"
+    _write_csv(path, [["code", "name", "code"], ["A1", "Widget", "B2"]])
+    dialog = CsvImportDialog([("sku", "SKU"), ("alt", "Alt")])
+
+    dialog.load_csv(path)
+    dialog.field_combos["sku"].setCurrentIndex(1)   # first "code" (CSV column 0)
+    dialog.field_combos["alt"].setCurrentIndex(3)   # second "code" (CSV column 2)
+
+    assert dialog.get_mapped_rows() == [{"sku": "A1", "alt": "B2"}]
+    assert dialog.field_combos["sku"].itemText(1) == "code (col 1)"
+    assert dialog.field_combos["sku"].itemText(3) == "code (col 3)"

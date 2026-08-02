@@ -73,19 +73,13 @@ def read_csv(
 
 
 def apply_mapping(
-    header: list[str],
     rows: list[list[str]],
-    mapping: dict[str, str | None],
+    mapping: dict[str, int | None],
 ) -> list[dict[str, str]]:
-    column_indexes = {
-        field: header.index(column) if column in header else None
-        for field, column in mapping.items()
-    }
-
     mapped_rows = []
     for row in rows:
         mapped_row = {}
-        for field, index in column_indexes.items():
+        for field, index in mapping.items():
             mapped_row[field] = row[index] if index is not None and index < len(row) else ""
         mapped_rows.append(mapped_row)
     return mapped_rows
