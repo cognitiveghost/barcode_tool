@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.core import print_service
+from app.core.print_batch import BatchResult
 from app.ui.mode_inventory_panel import (
     TABLE_COLUMNS,
     InventoryModePanel,
@@ -30,7 +31,7 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # ~/.barcode_tool directory (and seeding example templates into it)
     # during tests.
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.default_settings_path",
+        "app.core.config.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
 
@@ -272,19 +273,6 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
     assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2"]
 
 
-def test_print_checked_items_writes_a_timestamped_debug_pdf_next_to_the_audit_log(tmp_path):
-    _app()
-    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
-    panel = InventoryModePanel(settings)
-    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
-
-    panel.print_checked_items(output_pdf_path=tmp_path / "explicit.pdf")
-
-    debug_pdfs = list(tmp_path.glob("inventory_label_preview_*.pdf"))
-    assert len(debug_pdfs) == 1
-    assert debug_pdfs[0].stat().st_size > 0
-
-
 def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
     _app()
     shared_folder = tmp_path / "not_yet_created" / "nested"
@@ -294,22 +282,18 @@ def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
 
     panel.print_checked_items(output_pdf_path=tmp_path / "explicit.pdf")
 
-    debug_pdfs = list(shared_folder.glob("inventory_label_preview_*.pdf"))
-    assert len(debug_pdfs) == 1
-    assert debug_pdfs[0].stat().st_size > 0
+    assert len(list(shared_folder.glob("printed_pdfs/*/*.pdf"))) == 1
     assert len(list(shared_folder.glob("audit/*.csv"))) == 1
 
 
-def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_path(
-    monkeypatch, tmp_path
-):
+def test_print_checked_items_archives_a_pdf_without_an_explicit_output_path(monkeypatch, tmp_path):
     _app()
-    # Without an output path the first send_to_printer falls through to driver
-    # mode and QPrinter binds the *system default printer*. On a Linux runner
-    # there is none and Qt no-ops; on Windows it is "Microsoft Print to PDF",
-    # which opens a modal Save As dialog and blocks the whole run - this test
-    # is what has been hanging the Windows CI job until its 6h timeout. Only
-    # the driver leg is stubbed, so the debug PDF below is still written for real.
+    # Without an output path the physical print falls through to driver mode
+    # and QPrinter binds the *system default printer*. On a Linux runner
+    # there is none and Qt no-ops; on Windows it is "Microsoft Print to
+    # PDF", which opens a modal Save As dialog and blocks the whole run.
+    # Only the driver leg is stubbed - the archive render (which always has
+    # its own explicit output_pdf_path) still exercises real Qt rendering.
     real_print_labels = print_service.print_labels
     monkeypatch.setattr(
         "app.core.print_service.print_labels",
@@ -325,8 +309,8 @@ def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_p
 
     panel.print_checked_items()
 
-    debug_pdfs = list(tmp_path.glob("inventory_label_preview_*.pdf"))
-    assert len(debug_pdfs) == 1
+    archived = list(tmp_path.glob("printed_pdfs/*/*.pdf"))
+    assert len(archived) == 1
 
 
 def test_print_checked_items_skips_unchecked_rows(tmp_path):
@@ -391,10 +375,10 @@ def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp
     def _boom(*a, **k):
         raise OSError("printer offline")
 
-    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", _boom)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _boom)
     log_calls = []
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.append_print_log",
+        "app.core.print_batch.append_print_log",
         lambda *a, **k: log_calls.append(True),
     )
     warnings = []
@@ -406,7 +390,7 @@ def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp
     assert log_calls == []
 
 
-def test_audit_log_failure_reports_distinct_warning_after_successful_print(monkeypatch, tmp_path):
+def test_audit_log_failure_reports_a_warning_after_successful_print(monkeypatch, tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = InventoryModePanel(settings)
@@ -418,17 +402,18 @@ def test_audit_log_failure_reports_distinct_warning_after_successful_print(monke
         raise OSError("share unavailable")
 
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.send_to_printer",
+        "app.core.print_batch.send_to_printer",
         lambda *a, **k: print_calls.append(True),
     )
-    monkeypatch.setattr("app.ui.mode_inventory_panel.append_print_log", _log_boom)
+    monkeypatch.setattr("app.core.print_batch.append_print_log", _log_boom)
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
     panel.print_button.click()
 
-    assert print_calls == [True, True]
-    assert warnings[0][1] == "Audit log failed"
+    assert print_calls == [True, True]  # physical print + archive render
+    assert warnings[0][1] == "Printed with warnings"
+    assert "audit log" in warnings[0][2].lower()
 
 
 def test_describe_skus_dedupes_repeated_sku():
@@ -444,7 +429,10 @@ def test_print_button_click_invokes_print_checked_items(monkeypatch):
     _app()
     panel = InventoryModePanel(SETTINGS)
     calls = []
-    monkeypatch.setattr(panel, "print_checked_items", lambda: calls.append(True))
+    monkeypatch.setattr(
+        panel, "print_checked_items",
+        lambda: (calls.append(True), BatchResult(count=0, archive_path=None, warnings=[]))[1],
+    )
 
     panel.print_button.click()
 
@@ -484,7 +472,7 @@ def test_print_checked_items_passes_generated_date_as_yyyy_mm_dd(monkeypatch, tm
         return [Image.new("RGB", (10, 10)) for _ in records]
 
     monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
@@ -516,7 +504,7 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
         return [Image.new("RGB", (10, 10)) for _ in records]
 
     monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
@@ -530,3 +518,24 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
         record["position_code"],
     ) == ("SKU1", "Widget", "Acme Corp", "4471", "2027-03", "H-011-A")
     assert record["position_data"] == "C001H011A"  # warehouse prefix + raw position_code
+
+
+def test_print_button_click_shows_combined_warning_message(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    monkeypatch.setattr(
+        panel,
+        "print_checked_items",
+        lambda: BatchResult(
+            count=1, archive_path=None,
+            warnings=["Labels printed, but the audit log entry failed: boom. Do not reprint this batch."],
+        ),
+    )
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()
+
+    assert len(warnings) == 1
+    assert warnings[0][1] == "Printed with warnings"

@@ -17,15 +17,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.audit_log import append_print_log
-from app.core.config import default_settings_path
+from app.core.config import shared_folder
 from app.core.inventory_import import (
     INVENTORY_CSV_FIELDS,
     InventoryItem,
     items_from_csv_rows,
 )
 from app.core.position_generator import display_position_code
-from app.core.print_service import send_to_printer
+from app.core.print_batch import BatchResult, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
@@ -33,10 +32,6 @@ from app.ui.csv_import_dialog import CsvImportDialog
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
 
 _DESCRIPTION_SKU_LIMIT = 5
-
-
-class AuditLogError(OSError):
-    """Raised when labels printed successfully but the audit log entry could not be written."""
 
 
 def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
@@ -96,13 +91,13 @@ class InventoryModePanel(QWidget):
         for warehouse in settings.get("warehouses", []):
             self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
 
-        shared_folder = settings.get("shared_folder") or default_settings_path().parent
+        folder = shared_folder(settings)
         self.preset_combo.clear()
-        for preset in list_presets(Path(shared_folder), "inventory"):
+        for preset in list_presets(folder, "inventory"):
             self.preset_combo.addItem(preset.name, preset)
 
         if self.preset_combo.count() == 0:
-            self._warn_no_presets(shared_folder)
+            self._warn_no_presets(folder)
 
     def _warn_no_presets(self, shared_folder) -> None:
         window = self.window()
@@ -171,18 +166,14 @@ class InventoryModePanel(QWidget):
 
     def _on_print_clicked(self) -> None:
         try:
-            self.print_checked_items()
-        except AuditLogError as error:
-            QMessageBox.warning(
-                self,
-                "Audit log failed",
-                f"Labels printed, but the audit log entry failed: {error}\n"
-                "Do not reprint this batch.",
-            )
+            result = self.print_checked_items()
         except (ValueError, OSError, *windows_print_errors()) as error:
             QMessageBox.warning(self, "Print failed", str(error))
+            return
+        if result.warnings:
+            QMessageBox.warning(self, "Printed with warnings", "\n\n".join(result.warnings))
 
-    def print_checked_items(self, output_pdf_path: Path | None = None) -> None:
+    def print_checked_items(self, output_pdf_path: Path | None = None) -> BatchResult:
         checked = self.checked_items()
         if not checked:
             raise ValueError("Nothing to print - import a CSV and check at least one row")
@@ -214,34 +205,13 @@ class InventoryModePanel(QWidget):
         ]
         images = render_records(preset, records)
 
-        send_to_printer(
+        description = _describe_skus([item.sku for item in checked])
+        return print_batch(
             images,
-            width_mm=preset.width_mm,
-            height_mm=preset.height_mm,
-            settings=self._settings,
+            preset,
+            self._settings,
+            mode="inventory",
+            warehouse_prefix=warehouse_prefix,
+            description=description,
             output_pdf_path=output_pdf_path,
         )
-
-        shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
-        Path(shared_folder).mkdir(parents=True, exist_ok=True)
-        now = datetime.now(timezone.utc).astimezone()
-        debug_pdf_path = Path(shared_folder) / f"inventory_label_preview_{now:%Y%m%d_%H%M%S}.pdf"
-        send_to_printer(
-            images,
-            width_mm=preset.width_mm,
-            height_mm=preset.height_mm,
-            settings=self._settings,
-            output_pdf_path=debug_pdf_path,
-        )
-
-        description = _describe_skus([item.sku for item in checked])
-        try:
-            append_print_log(
-                shared_folder,
-                mode="inventory",
-                warehouse_prefix=warehouse_prefix,
-                count=len(checked),
-                description=description,
-            )
-        except OSError as error:
-            raise AuditLogError(str(error)) from error

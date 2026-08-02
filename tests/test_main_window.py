@@ -13,15 +13,17 @@ def _app():
 @pytest.fixture(autouse=True)
 def _isolated_settings_dir(monkeypatch, tmp_path):
     # MainWindow (and the panels it constructs) fall back to the real
-    # default_settings_path() whenever shared_folder is unset; redirect all
-    # three references into tmp_path so tests never touch (or seed template
+    # default_settings_path() whenever shared_folder is unset; redirect both
+    # references into tmp_path so tests never touch (or seed template
     # presets into) the developer's actual ~/.barcode_tool directory.
-    for module in (
-        "app.ui.main_window",
-        "app.ui.mode_positions_panel",
-        "app.ui.mode_inventory_panel",
-    ):
-        monkeypatch.setattr(f"{module}.default_settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(
+        "app.ui.main_window.default_settings_path",
+        lambda: tmp_path / "settings.json",
+    )
+    monkeypatch.setattr(
+        "app.core.config.default_settings_path",
+        lambda: tmp_path / "settings.json",
+    )
 
 
 def test_main_window_title():
@@ -142,3 +144,16 @@ def test_open_settings_refreshes_inventory_panel_combos(monkeypatch, tmp_path):
         for i in range(window.inventory_panel.warehouse_combo.count())
     ]
     assert warehouse_names == ["New"]
+
+
+def test_main_window_prunes_the_archive_on_startup(monkeypatch, tmp_path):
+    _app()
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.main_window.prune_archive",
+        lambda settings: calls.append(settings) or 0,
+    )
+
+    MainWindow()
+
+    assert len(calls) == 1

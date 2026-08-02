@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-from datetime import datetime, timezone
 from pathlib import Path
 
 from barcode.errors import BarcodeError
@@ -20,31 +18,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.audit_log import append_print_log
-from app.core.config import default_settings_path
+from app.core.config import shared_folder
 from app.core.position_generator import (
     NUMBER_MAX,
     codes_from_csv_rows,
     display_position_code,
     generate_position_codes,
 )
-from app.core.print_service import send_to_printer
+from app.core.print_batch import BatchResult, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
 
 _LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
-
-_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
-
-
-def _safe_filename_component(value: str) -> str:
-    return _UNSAFE_FILENAME_CHARS.sub("_", value)
-
-
-class ArchiveError(OSError):
-    pass
-
 
 POSITION_CSV_FIELDS = [
     ("position_code", "Position code (overrides corridor/number/height)"),
@@ -59,7 +45,7 @@ class PositionsModePanel(QWidget):
         super().__init__(parent)
         self.generated_codes: list[str] = []
         self.generated_labels: list[Image.Image] = []
-        self._generated_label_size: dict | None = None
+        self._generated_preset: TemplatePreset | None = None
 
         self.warehouse_combo = QComboBox()
         self.corridor_edit = QLineEdit()
@@ -119,13 +105,13 @@ class PositionsModePanel(QWidget):
         for warehouse in settings.get("warehouses", []):
             self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
 
-        shared_folder = settings.get("shared_folder") or default_settings_path().parent
+        folder = shared_folder(settings)
         self.preset_combo.clear()
-        for preset in list_presets(Path(shared_folder), "positions"):
+        for preset in list_presets(folder, "positions"):
             self.preset_combo.addItem(preset.name, preset)
 
         if self.preset_combo.count() == 0:
-            self._warn_no_presets(shared_folder)
+            self._warn_no_presets(folder)
 
     def _warn_no_presets(self, shared_folder) -> None:
         window = self.window()
@@ -144,16 +130,12 @@ class PositionsModePanel(QWidget):
 
     def _on_print_clicked(self) -> None:
         try:
-            self.print_current_labels()
-        except ArchiveError as error:
-            QMessageBox.warning(
-                self,
-                "Archive failed",
-                f"Labels printed, but the PDF archive failed: {error}\n"
-                "Do not reprint this batch.",
-            )
+            result = self.print_current_labels()
         except (ValueError, BarcodeError, OSError, *windows_print_errors()) as error:
             QMessageBox.warning(self, "Print failed", str(error))
+            return
+        if result.warnings:
+            QMessageBox.warning(self, "Printed with warnings", "\n\n".join(result.warnings))
 
     def generate(self) -> list[tuple[str, Image.Image]]:
         height_from = self.height_from_edit.text() or None
@@ -218,7 +200,7 @@ class PositionsModePanel(QWidget):
 
         self.generated_codes = codes
         self.generated_labels = images
-        self._generated_label_size = {"width_mm": preset.width_mm, "height_mm": preset.height_mm}
+        self._generated_preset = preset
         return results
 
     def _on_import_csv_clicked(self) -> None:
@@ -230,51 +212,22 @@ class PositionsModePanel(QWidget):
         except ValueError as error:
             QMessageBox.warning(self, "Import failed", str(error))
 
-    def print_current_labels(self, output_pdf_path: Path | None = None) -> None:
+    def print_current_labels(self, output_pdf_path: Path | None = None) -> BatchResult:
         if not self.generated_labels:
             raise ValueError("Nothing to print - generate labels first")
 
-        # Use the size the labels were actually rendered at, not whatever the
-        # combo currently shows - the user may have changed it after Generate.
-        label_size = self._generated_label_size
-
-        send_to_printer(
-            self.generated_labels,
-            width_mm=label_size["width_mm"],
-            height_mm=label_size["height_mm"],
-            settings=self._settings,
-            output_pdf_path=output_pdf_path,
-        )
-
-        warehouse_prefix = self.warehouse_combo.currentData() or ""
-        shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
+        warehouse_prefix = self.warehouse_combo.currentData()
         if len(self.generated_codes) > 1:
             description = f"{self.generated_codes[0]}..{self.generated_codes[-1]}"
         else:
             description = self.generated_codes[0]
 
-        append_print_log(
-            shared_folder,
+        return print_batch(
+            self.generated_labels,
+            self._generated_preset,
+            self._settings,
             mode="positions",
             warehouse_prefix=warehouse_prefix,
-            count=len(self.generated_codes),
             description=description,
+            output_pdf_path=output_pdf_path,
         )
-
-        try:
-            archive_dir = Path(shared_folder) / "printed_pdfs"
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-            archive_name = (
-                f"{timestamp}_{_safe_filename_component(warehouse_prefix)}"
-                f"_{_safe_filename_component(description)}.pdf"
-            )
-            send_to_printer(
-                self.generated_labels,
-                width_mm=label_size["width_mm"],
-                height_mm=label_size["height_mm"],
-                settings=self._settings,
-                output_pdf_path=archive_dir / archive_name,
-            )
-        except OSError as error:
-            raise ArchiveError(str(error)) from error

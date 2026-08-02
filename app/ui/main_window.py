@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.config import default_settings_path, load_settings
+from app.core.print_batch import prune_archive
 from app.ui.mode_inventory_panel import InventoryModePanel
 from app.ui.mode_positions_panel import PositionsModePanel
 from app.ui.settings_window import SettingsWindow
@@ -46,6 +47,7 @@ class MainWindow(QMainWindow):
 
         self._settings_path = default_settings_path()
         self._settings = load_settings(self._settings_path, on_recovery=self._warn_settings_recovered)
+        prune_archive(self._settings)
 
         self.positions_panel = PositionsModePanel(self._settings)
         self.inventory_panel = InventoryModePanel(self._settings)

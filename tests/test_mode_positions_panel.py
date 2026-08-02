@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
-from app.ui.mode_positions_panel import ArchiveError, PositionsModePanel
+from app.core.print_batch import BatchResult
+from app.ui.mode_positions_panel import PositionsModePanel
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
@@ -21,7 +22,7 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # ~/.barcode_tool directory (and seeding example templates into it)
     # during tests.
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.default_settings_path",
+        "app.core.config.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
 
@@ -144,7 +145,10 @@ def test_print_button_click_invokes_print_current_labels(monkeypatch):
     _app()
     panel = PositionsModePanel(SETTINGS)
     calls = []
-    monkeypatch.setattr(panel, "print_current_labels", lambda: calls.append(True))
+    monkeypatch.setattr(
+        panel, "print_current_labels",
+        lambda: (calls.append(True), BatchResult(count=0, archive_path=None, warnings=[]))[1],
+    )
 
     panel.print_button.click()
 
@@ -192,7 +196,7 @@ def test_print_uses_preset_from_generate_time_not_live_combo(monkeypatch, tmp_pa
 
     calls = []
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.send_to_printer",
+        "app.core.print_batch.send_to_printer",
         lambda *a, **k: calls.append(k),
     )
     panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
@@ -369,14 +373,14 @@ def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):
 
     panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
 
-    archived = list((tmp_path / "printed_pdfs").glob("*.pdf"))
+    archived = list((tmp_path / "printed_pdfs").glob("*/*.pdf"))
     assert len(archived) == 1
     assert archived[0].stat().st_size > 0
     assert "C001" in archived[0].name
     assert "H029..H030" in archived[0].name
 
 
-def test_print_current_labels_raises_archive_error_after_successful_print(tmp_path):
+def test_print_current_labels_reports_archive_warning_after_successful_print(tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = PositionsModePanel(settings)
@@ -386,10 +390,12 @@ def test_print_current_labels_raises_archive_error_after_successful_print(tmp_pa
     panel.generate()
     (tmp_path / "printed_pdfs").write_text("occupied by a file, not a directory")
 
-    with pytest.raises(ArchiveError):
-        panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
+    result = panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
 
     assert (tmp_path / "out.pdf").exists()
+    assert result.archive_path is None
+    assert len(result.warnings) == 1
+    assert "archive" in result.warnings[0].lower()
     audit_files = list((tmp_path / "audit").glob("*.csv"))
     assert len(audit_files) == 1
     log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
@@ -407,12 +413,32 @@ def test_print_current_labels_skips_archive_when_send_to_printer_raises(monkeypa
     def _boom(*a, **k):
         raise OSError("printer offline")
 
-    monkeypatch.setattr("app.ui.mode_positions_panel.send_to_printer", _boom)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _boom)
 
     with pytest.raises(OSError):
         panel.print_current_labels()
 
     assert not (tmp_path / "printed_pdfs").exists()
+
+
+def test_print_button_click_shows_combined_warning_message(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    monkeypatch.setattr(
+        panel,
+        "print_current_labels",
+        lambda: BatchResult(
+            count=1, archive_path=None,
+            warnings=["Labels printed, but the PDF archive failed: boom. Do not reprint this batch."],
+        ),
+    )
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()
+
+    assert len(warnings) == 1
+    assert warnings[0][1] == "Printed with warnings"
 
 
 def test_generate_without_warehouse_raises():
