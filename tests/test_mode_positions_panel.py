@@ -2,7 +2,7 @@ import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.core.label_renderer import mm_to_px
-from app.ui.mode_positions_panel import PositionsModePanel
+from app.ui.mode_positions_panel import ArchiveError, PositionsModePanel
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
@@ -351,6 +351,24 @@ def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):
     assert archived[0].stat().st_size > 0
     assert "C001" in archived[0].name
     assert "H029..H030" in archived[0].name
+
+
+def test_print_current_labels_raises_archive_error_after_successful_print(tmp_path):
+    _app()
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+    panel.generate()
+    (tmp_path / "printed_pdfs").write_text("occupied by a file, not a directory")
+
+    with pytest.raises(ArchiveError):
+        panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
+
+    assert (tmp_path / "out.pdf").exists()
+    log_lines = (tmp_path / "audit_log.csv").read_text(encoding="utf-8").strip().splitlines()
+    assert len(log_lines) == 2  # header + one entry - logged despite the archive failure
 
 
 def test_print_current_labels_skips_archive_when_send_to_printer_raises(monkeypatch, tmp_path):
