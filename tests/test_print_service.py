@@ -93,15 +93,21 @@ def test_print_labels_produces_a_page_actually_taller_than_wide_for_portrait(tmp
     assert height_pt == pytest.approx(150 / 25.4 * 72, abs=1)
 
 
-def test_send_to_printer_uses_pdf_path_regardless_of_print_mode(tmp_path):
+def test_send_to_printer_uses_pdf_path_regardless_of_print_mode(monkeypatch, tmp_path):
     _app()
     images = [Image.new("RGB", (100, 100), "white")]
     output_path = tmp_path / "labels.pdf"
     settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
+    calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels_zpl",
+        lambda *a, **k: calls.append((a, k)),
+    )
 
     send_to_printer(images, width_mm=68, height_mm=38, settings=settings, output_pdf_path=output_path)
 
     assert output_path.exists()
+    assert calls == []
 
 
 def test_send_to_printer_dispatches_to_raw_zpl_when_configured(monkeypatch):

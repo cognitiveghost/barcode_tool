@@ -29,6 +29,7 @@ from app.core.position_generator import (
     generate_position_codes,
 )
 from app.core.print_service import send_to_printer
+from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
 
 _LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
@@ -38,6 +39,11 @@ _UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 
 def _safe_filename_component(value: str) -> str:
     return _UNSAFE_FILENAME_CHARS.sub("_", value)
+
+
+class ArchiveError(OSError):
+    pass
+
 
 POSITION_CSV_FIELDS = [
     ("position_code", "Position code (overrides corridor/number/height)"),
@@ -129,7 +135,14 @@ class PositionsModePanel(QWidget):
     def _on_print_clicked(self) -> None:
         try:
             self.print_current_labels()
-        except (ValueError, BarcodeError, OSError) as error:
+        except ArchiveError as error:
+            QMessageBox.warning(
+                self,
+                "Archive failed",
+                f"Labels printed, but the PDF archive failed: {error}\n"
+                "Do not reprint this batch.",
+            )
+        except (ValueError, BarcodeError, OSError, *windows_print_errors()) as error:
             QMessageBox.warning(self, "Print failed", str(error))
 
     def generate(self) -> list[tuple[str, Image.Image]]:
@@ -225,21 +238,6 @@ class PositionsModePanel(QWidget):
         else:
             description = self.generated_codes[0]
 
-        archive_dir = Path(shared_folder) / "printed_pdfs"
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        archive_name = (
-            f"{timestamp}_{_safe_filename_component(warehouse_prefix)}"
-            f"_{_safe_filename_component(description)}.pdf"
-        )
-        send_to_printer(
-            self.generated_labels,
-            width_mm=label_size["width_mm"],
-            height_mm=label_size["height_mm"],
-            settings=self._settings,
-            output_pdf_path=archive_dir / archive_name,
-        )
-
         log_path = Path(shared_folder) / "audit_log.csv"
         append_print_log(
             log_path,
@@ -248,3 +246,21 @@ class PositionsModePanel(QWidget):
             count=len(self.generated_codes),
             description=description,
         )
+
+        try:
+            archive_dir = Path(shared_folder) / "printed_pdfs"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+            archive_name = (
+                f"{timestamp}_{_safe_filename_component(warehouse_prefix)}"
+                f"_{_safe_filename_component(description)}.pdf"
+            )
+            send_to_printer(
+                self.generated_labels,
+                width_mm=label_size["width_mm"],
+                height_mm=label_size["height_mm"],
+                settings=self._settings,
+                output_pdf_path=archive_dir / archive_name,
+            )
+        except OSError as error:
+            raise ArchiveError(str(error)) from error
