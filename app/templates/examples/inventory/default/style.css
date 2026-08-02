@@ -1,0 +1,31 @@
+@page { size: 150mm 100mm; margin: 0; }
+body { margin: 0; }
+.label {
+  box-sizing: border-box;
+  width: 150mm;
+  height: 100mm;
+  padding: 4mm;
+  display: flex;
+  flex-direction: row;
+  font-family: sans-serif;
+}
+.col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2mm;
+}
+.mid {
+  justify-content: flex-start;
+  text-align: center;
+}
+.qr {
+  max-width: 90%;
+  max-height: 60%;
+  object-fit: contain;
+}
+.caption { font-size: 5mm; }
+.name { font-weight: bold; font-size: 6mm; }
+.date { font-size: 3mm; margin-top: auto; }

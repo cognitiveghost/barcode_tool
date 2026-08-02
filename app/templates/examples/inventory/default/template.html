@@ -1,0 +1,17 @@
+<div class="label">
+  <div class="col">
+    <img class="qr" src="{{ label_tools.qr_code(sku) }}">
+    <div class="caption">{{ sku }}</div>
+  </div>
+  <div class="col mid">
+    <div class="name">{{ name }}</div>
+    {% if client %}<div>{{ client }}</div>{% endif %}
+    {% if batch %}<div>Batch: {{ batch }}</div>{% endif %}
+    {% if expiry %}<div>Expiry: {{ expiry }}</div>{% endif %}
+    <div class="date">{{ generated_date }}</div>
+  </div>
+  <div class="col">
+    <img class="qr" src="{{ label_tools.qr_code(position_data) }}">
+    <div class="caption">{{ position_code }}</div>
+  </div>
+</div>
