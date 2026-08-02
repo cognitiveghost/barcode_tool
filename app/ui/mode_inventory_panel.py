@@ -24,15 +24,12 @@ from app.core.inventory_import import (
     InventoryItem,
     items_from_csv_rows,
 )
-from app.core.label_renderer import render_inventory_label
 from app.core.print_service import send_to_printer
+from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
-
-INVENTORY_LABEL_WIDTH_MM = 150
-INVENTORY_LABEL_HEIGHT_MM = 100
 
 _DESCRIPTION_SKU_LIMIT = 5
 
@@ -56,6 +53,7 @@ class InventoryModePanel(QWidget):
         self.items: list[InventoryItem] = []
 
         self.warehouse_combo = QComboBox()
+        self.preset_combo = QComboBox()
         self.refresh_from_settings(settings)
 
         self.result_label = QLabel("0 items imported")
@@ -76,6 +74,7 @@ class InventoryModePanel(QWidget):
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
+        form.addRow("Template", self.preset_combo)
 
         select_buttons = QHBoxLayout()
         select_buttons.addWidget(self.select_all_button)
@@ -95,6 +94,11 @@ class InventoryModePanel(QWidget):
         self.warehouse_combo.clear()
         for warehouse in settings.get("warehouses", []):
             self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
+
+        shared_folder = settings.get("shared_folder") or default_settings_path().parent
+        self.preset_combo.clear()
+        for preset in list_presets(Path(shared_folder), "inventory"):
+            self.preset_combo.addItem(preset.name, preset)
 
     def load_items(self, rows: list[dict[str, str]]) -> list[InventoryItem]:
         items, skipped_rows = items_from_csv_rows(rows)
@@ -174,28 +178,33 @@ class InventoryModePanel(QWidget):
         if not warehouse_prefix:
             raise ValueError("No warehouse selected - add one in Settings first")
 
+        preset: TemplatePreset | None = self.preset_combo.currentData()
+        if preset is None:
+            raise ValueError(
+                "No label template selected - check the shared folder's templates directory"
+            )
+
         generated_date = datetime.now(timezone.utc).astimezone().strftime("%d%m%Y")
 
-        images = []
-        for item in checked:
-            image = render_inventory_label(
-                item.sku,
-                item.name,
-                item.client,
-                item.batch,
-                item.expiry,
-                item.position_code,
-                f"{warehouse_prefix}{item.position_code}",
-                generated_date,
-                width_mm=INVENTORY_LABEL_WIDTH_MM,
-                height_mm=INVENTORY_LABEL_HEIGHT_MM,
-            )
-            images.append(image)
+        records = [
+            {
+                "sku": item.sku,
+                "name": item.name,
+                "client": item.client,
+                "batch": item.batch,
+                "expiry": item.expiry,
+                "position_code": item.position_code,
+                "position_data": f"{warehouse_prefix}{item.position_code}",
+                "generated_date": generated_date,
+            }
+            for item in checked
+        ]
+        images = render_records(preset, records)
 
         send_to_printer(
             images,
-            width_mm=INVENTORY_LABEL_WIDTH_MM,
-            height_mm=INVENTORY_LABEL_HEIGHT_MM,
+            width_mm=preset.width_mm,
+            height_mm=preset.height_mm,
             settings=self._settings,
             output_pdf_path=output_pdf_path,
         )
@@ -206,8 +215,8 @@ class InventoryModePanel(QWidget):
         debug_pdf_path = Path(shared_folder) / f"inventory_label_preview_{now:%Y%m%d_%H%M%S}.pdf"
         send_to_printer(
             images,
-            width_mm=INVENTORY_LABEL_WIDTH_MM,
-            height_mm=INVENTORY_LABEL_HEIGHT_MM,
+            width_mm=preset.width_mm,
+            height_mm=preset.height_mm,
             settings=self._settings,
             output_pdf_path=debug_pdf_path,
         )
