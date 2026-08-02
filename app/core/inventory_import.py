@@ -27,16 +27,6 @@ class InventoryItem:
     client: str = ""
 
 
-def _split_combined_expiry_batch(expiry: str, batch: str) -> tuple[str, str]:
-    if not batch and "/" in expiry:
-        parts = expiry.split("/", 1)
-        return parts[0].strip(), parts[1].strip()
-    if not expiry and "/" in batch:
-        parts = batch.split("/", 1)
-        return parts[0].strip(), parts[1].strip()
-    return expiry, batch
-
-
 def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[int]]:
     items: list[InventoryItem] = []
     skipped_rows: list[int] = []
@@ -54,11 +44,10 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                     (row.get("height") or "").strip(),
                 )
             parse_position_code(position_code)
+            position_code = position_code.upper()
 
-            expiry, batch = _split_combined_expiry_batch(
-                (row.get("expiry") or "").strip(),
-                (row.get("batch") or "").strip(),
-            )
+            expiry = (row.get("expiry") or "").strip()
+            batch = (row.get("batch") or "").strip()
 
             items.append(
                 InventoryItem(

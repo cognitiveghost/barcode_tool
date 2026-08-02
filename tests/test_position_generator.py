@@ -103,11 +103,11 @@ def test_codes_from_csv_rows_builds_codes_from_components():
 
 
 def test_codes_from_csv_rows_prefers_position_code_when_present():
-    rows = [{"position_code": "C001H099Z", "corridor": "X", "number": "1", "height": ""}]
+    rows = [{"position_code": "H099Z", "corridor": "X", "number": "1", "height": ""}]
 
     codes, _skipped = codes_from_csv_rows(rows)
 
-    assert codes == ["C001H099Z"]
+    assert codes == ["H099Z"]
 
 
 def test_codes_from_csv_rows_skips_invalid_rows_and_continues():
@@ -247,3 +247,24 @@ def test_generate_position_codes_rejects_multi_char_height_to():
     # Multi-char height_to should raise ValueError, not TypeError from ord()
     with pytest.raises(ValueError):
         generate_position_codes("H", "1", "1", "A", "BB")
+
+
+def test_codes_from_csv_rows_rejects_junk_position_code():
+    rows = [{"position_code": "N/A"}, {"position_code": "see note"}]
+
+    codes, skipped = codes_from_csv_rows(rows)
+
+    assert codes == []
+    assert skipped == [1, 2]
+
+
+def test_codes_from_csv_rows_uppercases_position_code_column():
+    # Same barcode/text case-mismatch bug as Task 1, but for the CSV-column
+    # override path specifically: a lowercase cell must not survive into the
+    # code list, or the printed barcode payload would differ from the
+    # uppercase text the label displays.
+    rows = [{"position_code": "h099z"}]
+
+    codes, _skipped = codes_from_csv_rows(rows)
+
+    assert codes == ["H099Z"]
