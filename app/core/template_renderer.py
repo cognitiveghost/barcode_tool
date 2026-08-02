@@ -9,6 +9,7 @@ from blabel import LabelWriter
 from PIL import Image
 
 from app.core import label_tools
+from app.core.config import atomic_write_text
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "templates" / "examples"
 FONT_CSS = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "fonts.css"
@@ -93,7 +94,7 @@ def _write_if_changed(path: Path, content: str) -> None:
     # second machine reading this shared folder sees a half-written file.
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
-    path.write_text(content, encoding="utf-8")
+    atomic_write_text(path, content)
 
 
 def render_records(

@@ -88,6 +88,13 @@ def test_list_presets_seeds_a_readme_explaining_the_overwrite(tmp_path):
     assert "REWRITTEN" in readme
 
 
+def test_seeding_never_leaves_a_tmp_file_behind(tmp_path):
+    list_presets(tmp_path, "positions")
+
+    leftover_tmp_files = list((tmp_path / "templates" / "positions" / "default").glob("*.tmp"))
+    assert leftover_tmp_files == []
+
+
 # One condition, not two decorators: both are evaluated at import time, so a
 # separate skipif still calls os.geteuid() on Windows, where it does not exist.
 @pytest.mark.skipif(

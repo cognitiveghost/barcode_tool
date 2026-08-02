@@ -2,7 +2,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 import app.ui.main_window as main_window_module
-from app.core.config import save_settings
+from app.core.config import DEFAULT_SETTINGS, save_settings
 from app.ui.main_window import MainWindow
 
 
@@ -65,6 +65,21 @@ def test_open_settings_refreshes_positions_panel_combos(monkeypatch, tmp_path):
         for i in range(window.positions_panel.warehouse_combo.count())
     ]
     assert warehouse_names == ["New"]
+
+
+def test_corrupt_settings_shows_a_warning_and_still_opens(monkeypatch, tmp_path):
+    (tmp_path / "settings.json").write_text("{broken", encoding="utf-8")
+    warnings = []
+    monkeypatch.setattr(
+        "app.ui.main_window.QMessageBox.warning",
+        lambda *args, **kwargs: warnings.append(args),
+    )
+    _app()
+
+    window = MainWindow()
+
+    assert len(warnings) == 1
+    assert window._settings == DEFAULT_SETTINGS
 
 
 def test_open_settings_refreshes_inventory_panel_combos(monkeypatch, tmp_path):

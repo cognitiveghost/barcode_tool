@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMainWindow, QTabWidget
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QTabWidget
 
 from app.core.config import default_settings_path, load_settings
 from app.ui.mode_inventory_panel import InventoryModePanel
@@ -16,7 +16,7 @@ class MainWindow(QMainWindow):
         self.resize(900, 600)
 
         self._settings_path = default_settings_path()
-        self._settings = load_settings(self._settings_path)
+        self._settings = load_settings(self._settings_path, on_recovery=self._warn_settings_recovered)
 
         self.positions_panel = PositionsModePanel(self._settings)
         self.inventory_panel = InventoryModePanel(self._settings)
@@ -29,6 +29,9 @@ class MainWindow(QMainWindow):
         settings_action = QAction("Settings...", self)
         settings_action.triggered.connect(self._open_settings)
         self.menuBar().addAction(settings_action)
+
+    def _warn_settings_recovered(self, message: str) -> None:
+        QMessageBox.warning(self, "Settings reset", message)
 
     def _open_settings(self) -> None:
         dialog = SettingsWindow(self._settings, self._settings_path, parent=self)
