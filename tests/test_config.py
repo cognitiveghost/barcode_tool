@@ -1,6 +1,12 @@
 import json
 
-from app.core.config import DEFAULT_SETTINGS, load_settings, save_settings
+from app.core.config import (
+    DEFAULT_SETTINGS,
+    load_settings,
+    save_settings,
+    sanitize_filename_component,
+    shared_folder,
+)
 
 
 def test_load_settings_returns_defaults_when_missing(tmp_path):
@@ -77,3 +83,19 @@ def test_save_settings_never_leaves_a_tmp_file_behind(tmp_path):
 
     assert path.exists()
     assert not (tmp_path / "settings.json.tmp").exists()
+
+
+def test_shared_folder_uses_configured_value(tmp_path):
+    assert shared_folder({"shared_folder": str(tmp_path)}) == tmp_path
+
+
+def test_shared_folder_falls_back_to_default_settings_path_parent(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.core.config.default_settings_path", lambda: tmp_path / "settings.json")
+    assert shared_folder({"shared_folder": ""}) == tmp_path
+
+
+def test_sanitize_filename_component_replaces_unsafe_characters():
+    assert sanitize_filename_component("H029..H030") == "H029..H030"
+    # Both the comma and the space are unsafe (the regex only allows
+    # [A-Za-z0-9_.-]), so each becomes its own underscore.
+    assert sanitize_filename_component("SKU1, SKU2") == "SKU1__SKU2"

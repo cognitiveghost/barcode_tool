@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -12,11 +13,22 @@ DEFAULT_SETTINGS = {
     "raw_zpl_target": "",
     "warehouses": [],
     "csv_mappings": {},
+    "archive_retention_days": 90,
 }
+
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 def default_settings_path() -> Path:
     return Path.home() / ".barcode_tool" / "settings.json"
+
+
+def shared_folder(settings: dict) -> Path:
+    return Path(settings.get("shared_folder") or default_settings_path().parent)
+
+
+def sanitize_filename_component(value: str) -> str:
+    return _UNSAFE_FILENAME_CHARS.sub("_", value)
 
 
 def atomic_write_text(path: Path, content: str) -> None:

@@ -3,17 +3,15 @@ from __future__ import annotations
 import csv
 import getpass
 import os
-import re
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 
-from app.core.config import atomic_write_text
+from app.core.config import atomic_write_text, sanitize_filename_component
 
 LOG_COLUMNS = ["timestamp", "user", "mode", "warehouse_prefix", "count", "description"]
 
 _RISKY_LEADING_CHARS = ("=", "+", "-", "@")
-_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 def _escape_csv_formula(value: str) -> str:
@@ -22,10 +20,6 @@ def _escape_csv_formula(value: str) -> str:
     if value.startswith(_RISKY_LEADING_CHARS):
         return f"'{value}"
     return value
-
-
-def _safe_filename_component(value: str) -> str:
-    return _UNSAFE_FILENAME_CHARS.sub("_", value)
 
 
 def append_print_log(
@@ -38,7 +32,7 @@ def append_print_log(
     audit_dir = Path(shared_folder) / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc)
-    user = _safe_filename_component(getpass.getuser())
+    user = sanitize_filename_component(getpass.getuser())
     filename = f"{timestamp:%Y%m%dT%H%M%S.%f}Z_{user}_{os.getpid()}.csv"
 
     with (audit_dir / filename).open("w", newline="", encoding="utf-8") as f:
