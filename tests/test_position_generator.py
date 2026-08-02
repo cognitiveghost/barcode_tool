@@ -184,3 +184,50 @@ def test_display_position_code_pads_the_number():
 
 def test_display_position_code_passes_unparseable_csv_codes_through():
     assert display_position_code("free-form") == "FREE-FORM"
+
+
+def test_lowercase_corridor_and_height_are_uppercased():
+    assert format_position_code("h", "29", "a") == "H029A"
+
+
+def test_generate_uppercases_lowercase_input():
+    assert generate_position_codes("h", "1", "1", "a", "b") == ["H001A", "H001B"]
+
+
+def test_parse_position_code_uppercases():
+    assert parse_position_code("h001a") == ("H", "001", "A")
+
+
+def test_barcode_payload_matches_printed_text_for_lowercase_input():
+    # The bug this task exists for: payload was "h001a" while the label read
+    # "H-001-A", so the label scanned as something other than what it showed.
+    code = generate_position_codes("h", "1", "1", "a")[0]
+    letters_in_payload = [c for c in code if c.isalpha()]
+    letters_on_label = [c for c in display_position_code(code) if c.isalpha()]
+    assert letters_in_payload == letters_on_label
+
+
+def test_format_position_code_rejects_empty_corridor():
+    with pytest.raises(ValueError):
+        format_position_code("", "1")
+
+
+def test_format_position_code_rejects_multi_letter_corridor():
+    with pytest.raises(ValueError):
+        format_position_code("AB", "1")
+
+
+def test_format_position_code_rejects_non_letter_corridor():
+    with pytest.raises(ValueError):
+        format_position_code("%", "1")
+
+
+def test_format_position_code_rejects_non_letter_height():
+    with pytest.raises(ValueError):
+        format_position_code("H", "1", "%")
+
+
+def test_height_range_does_not_span_punctuation():
+    # ord('A')..ord('z') used to walk through [ \ ] ^ _ ` and emit 58 codes.
+    with pytest.raises(ValueError):
+        generate_position_codes("H", "1", "1", "A", "z")

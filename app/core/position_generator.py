@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import re
+import string
 
 NUMBER_WIDTH = 3
 NUMBER_MAX = 10**NUMBER_WIDTH - 1
 
+_LETTERS = frozenset(string.ascii_uppercase)
+
 
 def format_position_code(corridor: str, number: str, height: str = "") -> str:
-    if not corridor.isascii():
-        raise ValueError("corridor must contain only ASCII characters (Code128 can't encode this)")
+    corridor = corridor.upper()
+    height = height.upper()
+    if corridor not in _LETTERS:
+        raise ValueError("corridor must be exactly one ASCII letter, e.g. 'H'")
     if not number.isdigit():
         raise ValueError("number must be digits")
     if int(number) > NUMBER_MAX:
         raise ValueError(f"position numbers must be at most {NUMBER_MAX}")
-    if height and (len(height) != 1 or not height.isascii()):
-        raise ValueError("height must be a single ASCII character")
+    if height and height not in _LETTERS:
+        raise ValueError("height must be a single ASCII letter, e.g. 'A'")
     return f"{corridor}{number.zfill(NUMBER_WIDTH)}{height}"
 
 
@@ -29,8 +34,10 @@ def generate_position_codes(
         number_to = number_from
     if not number_from.isdigit() or not number_to.isdigit():
         raise ValueError("number_from and number_to must be digits")
-    if not corridor.isascii():
-        raise ValueError("corridor must contain only ASCII characters (Code128 can't encode this)")
+
+    corridor = corridor.upper()
+    if corridor not in _LETTERS:
+        raise ValueError("corridor must be exactly one ASCII letter, e.g. 'H'")
 
     start, end = int(number_from), int(number_to)
     if start > NUMBER_MAX or end > NUMBER_MAX:
@@ -40,12 +47,16 @@ def generate_position_codes(
 
     heights: list[str] = [""]
     if height_from is not None:
-        if height_to is None:
-            height_to = height_from
-        if len(height_from) != 1 or len(height_to) != 1:
-            raise ValueError("height letters must be single characters")
-        if not height_from.isascii() or not height_to.isascii():
-            raise ValueError("height letters must be ASCII characters (Code128 can't encode this)")
+        # Check that the range doesn't span non-letters before uppercasing
+        height_to_temp = height_from if height_to is None else height_to
+        for c in range(ord(height_from), ord(height_to_temp) + 1):
+            if chr(c).upper() not in _LETTERS:
+                raise ValueError("height range must not span non-letter characters")
+
+        height_from = height_from.upper()
+        height_to = height_from if height_to is None else height_to.upper()
+        if height_from not in _LETTERS or height_to not in _LETTERS:
+            raise ValueError("height letters must be A-Z")
         if height_from > height_to:
             raise ValueError("height_from must be <= height_to")
         heights = [chr(c) for c in range(ord(height_from), ord(height_to) + 1)]
@@ -81,6 +92,7 @@ _POSITION_CODE_PATTERN = re.compile(r"[A-Za-z][0-9]+[A-Za-z]?")
 
 
 def parse_position_code(code: str) -> tuple[str, str, str]:
+    code = code.upper()
     if not _POSITION_CODE_PATTERN.fullmatch(code):
         raise ValueError(
             f"position code {code!r} must be a letter, digits, and an "
