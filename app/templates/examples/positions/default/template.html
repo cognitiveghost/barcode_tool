@@ -1,4 +1,17 @@
+{# APP-OWNED FILE - rewritten on every launch, your edits here will be lost.
+   Copy this folder to a sibling name and edit the copy. See ../README.txt #}
 <div class="label">
-  <img class="barcode" src="{{ label_tools.barcode(barcode_data) }}">
-  <div class="caption">{{ visible_text }}</div>
+  <!-- operator's own text - never part of the barcode payload -->
+  <div class="user-text" style="font-size: {{ label_tools.fit_font(user_text, 138, 9, letter_spacing_mm=0.3) }}mm">
+    {% if user_text %}{{ user_text }}{% endif %}
+  </div>
+
+  <!-- bars only: the payload carries the warehouse prefix, which stays hidden -->
+  <div class="barcode-zone">
+    <img class="barcode" src="{{ label_tools.barcode(barcode_data) }}">
+  </div>
+
+  <div class="position-name" style="font-size: {{ label_tools.fit_font(visible_text, 136, 18, letter_spacing_mm=1) }}mm">
+    {{ visible_text }}
+  </div>
 </div>

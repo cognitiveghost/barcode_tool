@@ -24,6 +24,7 @@ from app.core.inventory_import import (
     InventoryItem,
     items_from_csv_rows,
 )
+from app.core.position_generator import display_position_code
 from app.core.print_service import send_to_printer
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.core.zpl_print_service import windows_print_errors
@@ -184,7 +185,7 @@ class InventoryModePanel(QWidget):
                 "No label template selected - check the shared folder's templates directory"
             )
 
-        generated_date = datetime.now(timezone.utc).astimezone().strftime("%d%m%Y")
+        generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
 
         records = [
             {
@@ -193,7 +194,7 @@ class InventoryModePanel(QWidget):
                 "client": item.client,
                 "batch": item.batch,
                 "expiry": item.expiry,
-                "position_code": item.position_code,
+                "position_code": display_position_code(item.position_code),
                 "position_data": f"{warehouse_prefix}{item.position_code}",
                 "generated_date": generated_date,
             }

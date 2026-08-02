@@ -1,0 +1,17 @@
+/* Bundled label font, so a label looks the same on every machine.
+   Must be handed to WeasyPrint as a file path, never as a CSS(string=...)
+   object: WeasyPrint drops @font-face rules from a CSS built without a
+   font_config, and blabel never passes one - the rules would silently
+   vanish and every label would fall back to the system monospace. */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  src: url("JetBrainsMono-Regular.ttf");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  src: url("JetBrainsMono-Bold.ttf");
+}

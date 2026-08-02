@@ -333,7 +333,7 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
         panel.preset_combo.itemText(i) for i in range(panel.preset_combo.count())
     ]
     assert warehouse_names == ["Second"]
-    assert preset_names == ["80x80mm"]
+    assert preset_names == ["80x80mm", "Default 150x100mm"]
 
 
 def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):

@@ -25,6 +25,7 @@ from app.core.config import default_settings_path
 from app.core.position_generator import (
     NUMBER_MAX,
     codes_from_csv_rows,
+    display_position_code,
     generate_position_codes,
 )
 from app.core.print_service import send_to_printer
@@ -185,11 +186,14 @@ class PositionsModePanel(QWidget):
             )
         custom_text = self.custom_text_edit.text()
 
+        # The warehouse prefix and the operator's text belong to the barcode
+        # payload and the header respectively - never to the position caption.
         records = [
             {
                 "code": code,
                 "barcode_data": f"{warehouse_prefix}{code}",
-                "visible_text": f"{code} {custom_text}".strip(),
+                "visible_text": display_position_code(code),
+                "user_text": custom_text,
                 "warehouse_prefix": warehouse_prefix,
                 "custom_text": custom_text,
             }
