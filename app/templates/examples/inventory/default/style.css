@@ -60,19 +60,15 @@ html, body { margin: 0; padding: 0; }
 
 .gen-date   { left: 55mm; top: 90mm;  width: 43mm; height: 6mm; align-items: center; justify-content: flex-end; font-size: 3mm; }
 
-/* COLUMN 3 - three secondary codes, all with the same caption style.
-   The caption sits beside its code rather than under it: that buys 4.5mm of
-   height per block, which goes back into the symbol. ISO/IEC 18004 wants 4
-   clear modules around a QR and those are drawn inside the box, so a 20mm
-   box only carried a 14.5mm symbol - at 24mm it carries 17.4mm. */
+/* COLUMN 3 - three secondary codes, all with the same caption style */
 .chip-pos { left: 104mm; top: 3mm;   width: 43.5mm; height: 5.5mm; font-size: 3.2mm; }
-.qr-pos   { left: 104.5mm; top: 9mm; width: 24mm; height: 24mm; align-items: center; justify-content: center; }
-.val-pos  { left: 129mm; top: 18mm;  width: 18mm; height: 6mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }
+.qr-pos   { left: 115.75mm; top: 9mm; width: 20mm; height: 20mm; align-items: center; justify-content: center; }
+.val-pos  { left: 104mm; top: 29mm;  width: 43.5mm; height: 4.5mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }
 
 .chip-exp { left: 104mm; top: 34.5mm; width: 43.5mm; height: 5.5mm; font-size: 3.2mm; }
-.qr-exp   { left: 104.5mm; top: 40.5mm; width: 24mm; height: 24mm; align-items: center; justify-content: center; }
-.val-exp  { left: 129mm; top: 49.5mm; width: 18mm; height: 6mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }
+.qr-exp   { left: 115.75mm; top: 40.5mm; width: 20mm; height: 20mm; align-items: center; justify-content: center; }
+.val-exp  { left: 104mm; top: 60.5mm; width: 43.5mm; height: 4.5mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }
 
 .chip-lot { left: 104mm; top: 66mm;  width: 43.5mm; height: 5.5mm; font-size: 3.2mm; }
-.qr-lot   { left: 104.5mm; top: 72mm; width: 24mm; height: 24mm; align-items: center; justify-content: center; }
-.val-lot  { left: 129mm; top: 81mm;  width: 18mm; height: 6mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }
+.qr-lot   { left: 115.75mm; top: 72mm; width: 20mm; height: 20mm; align-items: center; justify-content: center; }
+.val-lot  { left: 104mm; top: 92mm;  width: 43.5mm; height: 4.5mm; align-items: center; justify-content: center; font-weight: 700; white-space: nowrap; }

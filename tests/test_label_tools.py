@@ -3,7 +3,13 @@ import re
 
 import qrcode
 
-from app.core.label_tools import barcode, fit_font, fit_font_block, qr_code
+from app.core.label_tools import (
+    _QR_QUIET_MODULES,
+    barcode,
+    fit_font,
+    fit_font_block,
+    qr_code,
+)
 
 
 def _decoded(data_uri: str) -> str:
@@ -49,20 +55,24 @@ def test_qr_code_encodes_the_given_data():
     assert _decoded(qr_code("ART-4471")) != _decoded(qr_code("ART-4472"))
 
 
-def test_qr_code_carries_the_iso_18004_quiet_zone():
-    # ISO/IEC 18004 6.3.7 - 4 clear modules on every side. The CSS box is
-    # only what the layout reserves, so on the inventory label a code drawn
-    # edge to edge ends up with a solid black chip against its finders.
+def test_qr_code_is_never_drawn_edge_to_edge():
+    # Deliberately 2 modules, not the 4 ISO/IEC 18004 asks for - see the note
+    # on _QR_QUIET_MODULES. What this pins is that the margin exists at all:
+    # at zero the inventory codes sat directly against the black chip bars.
     data = "C002d002e"
     symbol = qrcode.QRCode(border=0)
     symbol.add_data(data)
     symbol.make()
 
-    assert _qr_grid_size(_decoded(qr_code(data))) == symbol.modules_count + 2 * 4
+    assert _QR_QUIET_MODULES >= 1
+    assert (
+        _qr_grid_size(_decoded(qr_code(data)))
+        == symbol.modules_count + 2 * _QR_QUIET_MODULES
+    )
 
 
-def test_qr_code_quiet_zone_still_leaves_scannable_modules_at_203dpi():
-    # Smallest code on the inventory label is a 20mm box; the quiet zone eats
+def test_qr_code_margin_still_leaves_scannable_modules_at_203dpi():
+    # Smallest code on the inventory label is a 20mm box; the margin eats
     # into it, so check what is left is still several print-head dots wide.
     grid = _qr_grid_size(_decoded(qr_code("2027-05-31")))
     module_dots = 20 / grid / 25.4 * 203

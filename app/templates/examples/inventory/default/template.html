@@ -25,13 +25,13 @@
   <!-- COLUMN 3 - Position / Expiry / Batch -->
   <div class="chip chip-pos">POS</div>
   <div class="box qr-pos"><img src="{{ label_tools.qr_code(position_data) }}"></div>
-  <div class="box val-pos" style="font-size: {{ label_tools.fit_font(position_code, 17.5, 3.4) }}mm">{{ position_code }}</div>
+  <div class="box val-pos" style="font-size: {{ label_tools.fit_font(position_code, 42, 3.4) }}mm">{{ position_code }}</div>
 
   <div class="chip chip-exp">EXP</div>
   <div class="box qr-exp">{% if expiry %}<img src="{{ label_tools.qr_code(expiry) }}">{% endif %}</div>
-  <div class="box val-exp" style="font-size: {{ label_tools.fit_font(expiry, 17.5, 3.4) }}mm">{% if expiry %}{{ expiry }}{% endif %}</div>
+  <div class="box val-exp" style="font-size: {{ label_tools.fit_font(expiry, 42, 3.4) }}mm">{% if expiry %}{{ expiry }}{% endif %}</div>
 
   <div class="chip chip-lot">LOT</div>
   <div class="box qr-lot">{% if batch %}<img src="{{ label_tools.qr_code(batch) }}">{% endif %}</div>
-  <div class="box val-lot" style="font-size: {{ label_tools.fit_font(batch, 17.5, 3.4) }}mm">{% if batch %}{{ batch }}{% endif %}</div>
+  <div class="box val-lot" style="font-size: {{ label_tools.fit_font(batch, 42, 3.4) }}mm">{% if batch %}{{ batch }}{% endif %}</div>
 </div>

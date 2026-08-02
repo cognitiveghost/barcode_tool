@@ -26,8 +26,14 @@ _SVG_DATA_URI = "data:image/svg+xml;charset=utf-8;base64,"
 # JetBrains Mono (and any monospace) advances 0.6em per character.
 _MONO_CHAR_WIDTH = 0.6
 
-# ISO/IEC 18004 6.3.7: a QR symbol needs 4 clear modules on every side.
-_QR_QUIET_MODULES = 4
+# ISO/IEC 18004 6.3.7 asks for 4 clear modules around a QR. We draw 2. The
+# quiet zone is rendered inside the CSS box, so going to 4 costs ~28% of the
+# symbol's printed size, and the codes were verified to read reliably at 2 on
+# the scanner these labels are actually used with. What mattered was not
+# drawing them edge to edge, which put them against the black chip bars.
+# ponytail: below spec on purpose - if a future scanner misreads column 3,
+# raise this to 4 and grow the .qr-* boxes to keep the symbol the same size.
+_QR_QUIET_MODULES = 2
 
 # ISO/IEC 15417 quiet zone for Code 128 is 10x the narrow element width.
 # python-barcode expresses both in mm, so the ratio has to be applied by
