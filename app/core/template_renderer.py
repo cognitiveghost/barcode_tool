@@ -4,6 +4,10 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from blabel import LabelWriter
+from PIL import Image
+import pypdfium2 as pdfium
+
 EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "templates" / "examples"
 
 
@@ -51,3 +55,23 @@ def _seed_examples(mode_dir: Path, mode: str) -> None:
         (target_dir / filename).write_text(
             (example_dir / filename).read_text(encoding="utf-8"), encoding="utf-8"
         )
+
+
+def render_records(
+    preset: TemplatePreset,
+    records: list[dict],
+    dpi: int = 203,
+) -> list[Image.Image]:
+    writer = LabelWriter(
+        str(preset.template_path),
+        default_stylesheets=(str(preset.stylesheet_path),),
+        items_per_page=1,
+    )
+    pdf_bytes = writer.write_labels(records, target="@memory")
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    images = []
+    for page in pdf:
+        bitmap = page.render(scale=dpi / 72)
+        images.append(bitmap.to_pil().convert("RGB"))
+    return images

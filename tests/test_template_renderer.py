@@ -1,6 +1,11 @@
 import json
+from pathlib import Path
 
-from app.core.template_renderer import list_presets
+from PIL import Image
+
+from app.core.template_renderer import TemplatePreset, list_presets, render_records
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "templates" / "sample"
 
 
 def test_list_presets_seeds_examples_into_empty_shared_folder(tmp_path):
@@ -48,3 +53,40 @@ def test_list_presets_lists_multiple_presets_sorted_by_folder_name(tmp_path):
     presets = list_presets(tmp_path, "positions")
 
     assert [p.name for p in presets] == ["A", "B"]
+
+
+def _sample_preset() -> TemplatePreset:
+    return TemplatePreset(
+        name="Sample",
+        mode="test",
+        width_mm=40,
+        height_mm=30,
+        template_path=FIXTURE_DIR / "template.html",
+        stylesheet_path=FIXTURE_DIR / "style.css",
+    )
+
+
+def test_render_records_returns_one_image_per_record():
+    images = render_records(
+        _sample_preset(),
+        [{"code": "A1", "label": "A1"}, {"code": "A2", "label": "A2"}],
+    )
+
+    assert len(images) == 2
+    assert all(isinstance(img, Image.Image) for img in images)
+
+
+def test_render_records_image_size_matches_preset_mm_at_dpi():
+    images = render_records(_sample_preset(), [{"code": "A1", "label": "A1"}], dpi=203)
+
+    expected_width = round(40 / 25.4 * 203)
+    expected_height = round(30 / 25.4 * 203)
+    assert abs(images[0].width - expected_width) <= 1
+    assert abs(images[0].height - expected_height) <= 1
+
+
+def test_render_records_output_reflects_record_data():
+    img_a = render_records(_sample_preset(), [{"code": "A1", "label": "A1"}])[0]
+    img_b = render_records(_sample_preset(), [{"code": "A2", "label": "A2"}])[0]
+
+    assert img_a.tobytes() != img_b.tobytes()
