@@ -1,12 +1,13 @@
+import json
+from pathlib import Path
+
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.core.label_renderer import mm_to_px
 from app.ui.mode_positions_panel import ArchiveError, PositionsModePanel
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
-    "label_sizes": [{"name": "68x38mm", "width_mm": 68, "height_mm": 38}],
 }
 
 
@@ -14,23 +15,32 @@ def _app():
     return QApplication.instance() or QApplication([])
 
 
-def test_orientation_defaults_to_landscape():
-    _app()
-    panel = PositionsModePanel(SETTINGS)
-    assert panel.orientation_combo.currentText() == "Landscape"
+@pytest.fixture(autouse=True)
+def _isolated_settings_dir(monkeypatch, tmp_path):
+    # Prevents the shared_folder="" fallback path from touching the real
+    # ~/.barcode_tool directory (and seeding example templates into it)
+    # during tests.
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.default_settings_path",
+        lambda: tmp_path / "settings.json",
+    )
 
 
-def test_portrait_orientation_swaps_generated_label_dimensions():
-    _app()
-    panel = PositionsModePanel(SETTINGS)  # 68x38mm size
-    panel.corridor_edit.setText("H")
-    panel.number_from_edit.setText("029")
-    panel.orientation_combo.setCurrentText("Portrait")
-
-    results = panel.generate()
-
-    _, image = results[0]
-    assert image.size == (mm_to_px(38), mm_to_px(68))
+def _write_preset(
+    shared_folder: Path, mode: str, slug: str, name: str, width_mm: float, height_mm: float
+) -> None:
+    preset_dir = Path(shared_folder) / "templates" / mode / slug
+    preset_dir.mkdir(parents=True)
+    (preset_dir / "meta.json").write_text(
+        json.dumps({"name": name, "width_mm": width_mm, "height_mm": height_mm})
+    )
+    (preset_dir / "template.html").write_text(
+        '<div><img src="{{ label_tools.barcode(barcode_data) }}">'
+        "<div>{{ visible_text }}</div></div>"
+    )
+    (preset_dir / "style.css").write_text(
+        f"@page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}"
+    )
 
 
 def test_generate_produces_expected_codes_and_labels():
@@ -116,9 +126,11 @@ def test_print_current_labels_writes_pdf_and_log(tmp_path):
     assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030"]
 
 
-def test_generate_without_label_size_raises_value_error():
+def test_generate_without_preset_raises_value_error(monkeypatch, tmp_path):
     _app()
-    panel = PositionsModePanel({"warehouses": SETTINGS["warehouses"], "label_sizes": []})
+    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("029")
     panel.number_to_edit.setText("030")
@@ -149,14 +161,8 @@ def test_print_button_click_without_generated_labels_shows_warning(monkeypatch):
     assert len(warnings) == 1
 
 
-def test_print_current_labels_falls_back_to_settings_dir_when_shared_folder_empty(
-    monkeypatch, tmp_path
-):
+def test_print_current_labels_falls_back_to_settings_dir_when_shared_folder_empty(tmp_path):
     _app()
-    monkeypatch.setattr(
-        "app.ui.mode_positions_panel.default_settings_path",
-        lambda: tmp_path / "settings.json",
-    )
     settings = {**SETTINGS, "default_printer": "", "shared_folder": ""}
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
@@ -169,25 +175,19 @@ def test_print_current_labels_falls_back_to_settings_dir_when_shared_folder_empt
     assert (tmp_path / "audit_log.csv").exists()
 
 
-def test_print_uses_label_size_from_generate_time_not_live_combo(monkeypatch, tmp_path):
+def test_print_uses_preset_from_generate_time_not_live_combo(monkeypatch, tmp_path):
     _app()
-    settings = {
-        "warehouses": SETTINGS["warehouses"],
-        "label_sizes": [
-            {"name": "68x38mm", "width_mm": 68, "height_mm": 38},
-            {"name": "80x80mm", "width_mm": 80, "height_mm": 80},
-        ],
-        "default_printer": "",
-        "shared_folder": str(tmp_path),
-    }
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    _write_preset(tmp_path, "positions", "b", "80x80mm", 80, 80)
+    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("029")
     panel.number_to_edit.setText("030")
-    panel.label_size_combo.setCurrentIndex(0)  # 68x38mm
+    panel.preset_combo.setCurrentIndex(0)  # 68x38mm
     panel.generate()
 
-    panel.label_size_combo.setCurrentIndex(1)  # user changes size after Generate
+    panel.preset_combo.setCurrentIndex(1)  # user changes template after Generate
 
     calls = []
     monkeypatch.setattr(
@@ -314,25 +314,26 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     assert len(warnings) == 1
 
 
-def test_refresh_from_settings_rebuilds_combos():
+def test_refresh_from_settings_rebuilds_combos(tmp_path):
     _app()
+    _write_preset(tmp_path, "positions", "a", "80x80mm", 80, 80)
     panel = PositionsModePanel(SETTINGS)
 
     panel.refresh_from_settings(
         {
             "warehouses": [{"name": "Second", "prefix": "C002"}],
-            "label_sizes": [{"name": "80x80mm", "width_mm": 80, "height_mm": 80}],
+            "shared_folder": str(tmp_path),
         }
     )
 
     warehouse_names = [
         panel.warehouse_combo.itemText(i) for i in range(panel.warehouse_combo.count())
     ]
-    label_size_names = [
-        panel.label_size_combo.itemText(i) for i in range(panel.label_size_combo.count())
+    preset_names = [
+        panel.preset_combo.itemText(i) for i in range(panel.preset_combo.count())
     ]
     assert warehouse_names == ["Second"]
-    assert label_size_names == ["80x80mm"]
+    assert preset_names == ["80x80mm"]
 
 
 def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):

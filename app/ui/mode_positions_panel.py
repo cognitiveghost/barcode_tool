@@ -22,13 +22,13 @@ from PySide6.QtWidgets import (
 
 from app.core.audit_log import append_print_log
 from app.core.config import default_settings_path
-from app.core.label_renderer import apply_orientation, render_label
 from app.core.position_generator import (
     NUMBER_MAX,
     codes_from_csv_rows,
     generate_position_codes,
 )
 from app.core.print_service import send_to_printer
+from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
 
@@ -80,11 +80,8 @@ class PositionsModePanel(QWidget):
 
         self.custom_text_edit = QLineEdit()
 
-        self.label_size_combo = QComboBox()
+        self.preset_combo = QComboBox()
         self.refresh_from_settings(settings)
-
-        self.orientation_combo = QComboBox()
-        self.orientation_combo.addItems(["Landscape", "Portrait"])
 
         self.result_label = QLabel("0 labels generated")
         generate_button = QPushButton("Generate")
@@ -105,8 +102,7 @@ class PositionsModePanel(QWidget):
         form.addRow("Height from", self.height_from_edit)
         form.addRow("Height to", self.height_to_edit)
         form.addRow("Custom text", self.custom_text_edit)
-        form.addRow("Label size", self.label_size_combo)
-        form.addRow("Orientation", self.orientation_combo)
+        form.addRow("Template", self.preset_combo)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -122,9 +118,10 @@ class PositionsModePanel(QWidget):
         for warehouse in settings.get("warehouses", []):
             self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
 
-        self.label_size_combo.clear()
-        for size in settings.get("label_sizes", []):
-            self.label_size_combo.addItem(size["name"], size)
+        shared_folder = settings.get("shared_folder") or default_settings_path().parent
+        self.preset_combo.clear()
+        for preset in list_presets(Path(shared_folder), "positions"):
+            self.preset_combo.addItem(preset.name, preset)
 
     def _on_generate_clicked(self) -> None:
         try:
@@ -181,29 +178,29 @@ class PositionsModePanel(QWidget):
 
     def _render_labels(self, codes: list[str]) -> list[tuple[str, Image.Image]]:
         warehouse_prefix = self.warehouse_combo.currentData() or ""
-        label_size = self.label_size_combo.currentData()
-        if label_size is None:
-            raise ValueError("No label size selected - add one in Settings first")
-        width_mm, height_mm = apply_orientation(
-            label_size["width_mm"], label_size["height_mm"], self.orientation_combo.currentText()
-        )
+        preset: TemplatePreset | None = self.preset_combo.currentData()
+        if preset is None:
+            raise ValueError(
+                "No label template selected - check the shared folder's templates directory"
+            )
         custom_text = self.custom_text_edit.text()
 
-        results = []
-        for code in codes:
-            visible_text = f"{code} {custom_text}".strip()
-            barcode_data = f"{warehouse_prefix}{code}"
-            image = render_label(
-                barcode_data,
-                visible_text,
-                width_mm=width_mm,
-                height_mm=height_mm,
-            )
-            results.append((code, image))
+        records = [
+            {
+                "code": code,
+                "barcode_data": f"{warehouse_prefix}{code}",
+                "visible_text": f"{code} {custom_text}".strip(),
+                "warehouse_prefix": warehouse_prefix,
+                "custom_text": custom_text,
+            }
+            for code in codes
+        ]
+        images = render_records(preset, records)
+        results = list(zip(codes, images))
 
         self.generated_codes = codes
-        self.generated_labels = [image for _, image in results]
-        self._generated_label_size = {"width_mm": width_mm, "height_mm": height_mm}
+        self.generated_labels = images
+        self._generated_label_size = {"width_mm": preset.width_mm, "height_mm": preset.height_mm}
         return results
 
     def _on_import_csv_clicked(self) -> None:
