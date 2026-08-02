@@ -120,7 +120,20 @@ def test_codes_from_csv_rows_skips_invalid_rows_and_continues():
     codes, skipped = codes_from_csv_rows(rows)
 
     assert codes == ["H029", "H030"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
+
+
+def test_codes_from_csv_rows_captures_skip_reason():
+    rows = [
+        {"corridor": "H", "number": "029", "height": ""},
+        {"corridor": "H", "number": "not-a-number", "height": ""},
+    ]
+
+    codes, skipped = codes_from_csv_rows(rows)
+
+    assert len(skipped) == 1
+    assert skipped[0].row_number == 2
+    assert "digit" in skipped[0].reason.lower()
 
 
 def test_codes_from_csv_rows_handles_missing_keys():
@@ -255,7 +268,7 @@ def test_codes_from_csv_rows_rejects_junk_position_code():
     codes, skipped = codes_from_csv_rows(rows)
 
     assert codes == []
-    assert skipped == [1, 2]
+    assert [s.row_number for s in skipped] == [1, 2]
 
 
 def test_codes_from_csv_rows_uppercases_position_code_column():

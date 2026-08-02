@@ -4,7 +4,7 @@ from pathlib import Path
 
 from barcode.errors import BarcodeError
 from PIL import Image
-from PySide6.QtCore import QRegularExpression
+from PySide6.QtCore import Qt, QRegularExpression
 from PySide6.QtGui import QIntValidator, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -29,6 +29,7 @@ from app.core.print_batch import BatchResult, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
 _LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
 
@@ -46,6 +47,8 @@ class PositionsModePanel(QWidget):
         self.generated_codes: list[str] = []
         self.generated_labels: list[Image.Image] = []
         self._generated_preset: TemplatePreset | None = None
+        self._last_skipped_rows: list = []
+        self._last_import_rows: list[dict[str, str]] = []
 
         self.warehouse_combo = QComboBox()
         self.corridor_edit = QLineEdit()
@@ -71,6 +74,8 @@ class PositionsModePanel(QWidget):
         self.refresh_from_settings(settings)
 
         self.result_label = QLabel("0 labels generated")
+        self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.result_label.linkActivated.connect(self._show_skipped_rows_detail)
         generate_button = QPushButton("Generate")
         generate_button.clicked.connect(self._on_generate_clicked)
 
@@ -162,10 +167,13 @@ class PositionsModePanel(QWidget):
 
         results = self._render_labels(codes)
 
+        self._last_skipped_rows = skipped_rows
+        self._last_import_rows = rows
         if skipped_rows:
             unit = "row" if len(skipped_rows) == 1 else "rows"
             self.result_label.setText(
-                f"{len(results)} labels generated ({len(skipped_rows)} {unit} skipped)"
+                f'{len(results)} labels generated '
+                f'(<a href="#">{len(skipped_rows)} {unit} skipped - show details</a>)'
             )
         else:
             self.result_label.setText(f"{len(results)} labels generated")
@@ -211,6 +219,10 @@ class PositionsModePanel(QWidget):
             self.generate_from_rows(dialog.get_mapped_rows())
         except ValueError as error:
             QMessageBox.warning(self, "Import failed", str(error))
+
+    def _show_skipped_rows_detail(self, _href: str = "") -> None:
+        dialog = SkippedRowsDialog(self._last_skipped_rows, self._last_import_rows, parent=self)
+        dialog.exec()
 
     def print_current_labels(self, output_pdf_path: Path | None = None) -> BatchResult:
         if not self.generated_labels:

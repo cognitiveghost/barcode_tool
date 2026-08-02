@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import string
+from dataclasses import dataclass
 
 NUMBER_WIDTH = 3
 NUMBER_MAX = 10**NUMBER_WIDTH - 1
@@ -62,9 +63,15 @@ def generate_position_codes(
     ]
 
 
-def codes_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[str], list[int]]:
+@dataclass
+class SkippedRow:
+    row_number: int
+    reason: str
+
+
+def codes_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[str], list[SkippedRow]]:
     codes: list[str] = []
-    skipped_rows: list[int] = []
+    skipped_rows: list[SkippedRow] = []
     for row_number, row in enumerate(rows, start=1):
         position_code = (row.get("position_code") or "").strip()
         try:
@@ -76,8 +83,8 @@ def codes_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[str], list[int
                 number = (row.get("number") or "").strip()
                 height = (row.get("height") or "").strip()
                 codes.append(format_position_code(corridor, number, height))
-        except ValueError:
-            skipped_rows.append(row_number)
+        except ValueError as error:
+            skipped_rows.append(SkippedRow(row_number, str(error)))
     return codes, skipped_rows
 
 

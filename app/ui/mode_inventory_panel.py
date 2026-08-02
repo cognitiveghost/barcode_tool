@@ -28,6 +28,7 @@ from app.core.print_batch import BatchResult, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
 
@@ -47,12 +48,16 @@ class InventoryModePanel(QWidget):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.items: list[InventoryItem] = []
+        self._last_skipped_rows: list = []
+        self._last_import_rows: list[dict[str, str]] = []
 
         self.warehouse_combo = QComboBox()
         self.preset_combo = QComboBox()
         self.refresh_from_settings(settings)
 
         self.result_label = QLabel("0 items imported")
+        self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.result_label.linkActivated.connect(self._show_skipped_rows_detail)
 
         self.import_csv_button = QPushButton("Import CSV...")
         self.import_csv_button.clicked.connect(self._on_import_csv_clicked)
@@ -116,11 +121,14 @@ class InventoryModePanel(QWidget):
         self.items = items
         self._populate_table(items)
 
+        self._last_skipped_rows = skipped_rows
+        self._last_import_rows = rows
         item_unit = "item" if len(items) == 1 else "items"
         if skipped_rows:
             row_unit = "row" if len(skipped_rows) == 1 else "rows"
             self.result_label.setText(
-                f"{len(items)} {item_unit} imported ({len(skipped_rows)} {row_unit} skipped)"
+                f'{len(items)} {item_unit} imported '
+                f'(<a href="#">{len(skipped_rows)} {row_unit} skipped - show details</a>)'
             )
         else:
             self.result_label.setText(f"{len(items)} {item_unit} imported")
@@ -163,6 +171,10 @@ class InventoryModePanel(QWidget):
             self.load_items(dialog.get_mapped_rows())
         except ValueError as error:
             QMessageBox.warning(self, "Import failed", str(error))
+
+    def _show_skipped_rows_detail(self, _href: str = "") -> None:
+        dialog = SkippedRowsDialog(self._last_skipped_rows, self._last_import_rows, parent=self)
+        dialog.exec()
 
     def _on_print_clicked(self) -> None:
         try:

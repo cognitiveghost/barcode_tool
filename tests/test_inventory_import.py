@@ -51,7 +51,17 @@ def test_items_from_csv_rows_skips_missing_sku():
     items, skipped = items_from_csv_rows(rows)
 
     assert [item.sku for item in items] == ["SKU1"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
+
+
+def test_items_from_csv_rows_captures_skip_reason_for_missing_sku():
+    rows = [{"sku": "", "position_code": "H011A"}]
+
+    items, skipped = items_from_csv_rows(rows)
+
+    assert len(skipped) == 1
+    assert skipped[0].row_number == 1
+    assert "sku" in skipped[0].reason.lower()
 
 
 def test_items_from_csv_rows_skips_malformed_position_code():
@@ -63,7 +73,7 @@ def test_items_from_csv_rows_skips_malformed_position_code():
     items, skipped = items_from_csv_rows(rows)
 
     assert [item.sku for item in items] == ["SKU1"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
 
 
 def test_items_from_csv_rows_skips_position_code_above_number_max():
@@ -75,7 +85,7 @@ def test_items_from_csv_rows_skips_position_code_above_number_max():
     items, skipped = items_from_csv_rows(rows)
 
     assert [item.sku for item in items] == ["SKU1"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
 
 
 def test_items_from_csv_rows_keeps_multiple_positions_for_same_sku():

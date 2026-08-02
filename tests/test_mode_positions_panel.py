@@ -231,7 +231,36 @@ def test_generate_from_rows_reports_skipped_rows():
     results = panel.generate_from_rows(rows)
 
     assert [code for code, _ in results] == ["H029", "H030"]
-    assert panel.result_label.text() == "2 labels generated (1 row skipped)"
+    assert "2 labels generated" in panel.result_label.text()
+    assert "1 row skipped" in panel.result_label.text()
+    assert "show details" in panel.result_label.text()
+
+
+def test_skipped_rows_link_opens_detail_dialog(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    rows = [
+        {"corridor": "H", "number": "029", "height": ""},
+        {"corridor": "H", "number": "not-a-number", "height": ""},
+    ]
+    panel.generate_from_rows(rows)
+
+    opened = []
+
+    class FakeDialog:
+        def __init__(self, skipped_rows, raw_rows, parent=None):
+            opened.append((skipped_rows, raw_rows))
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.SkippedRowsDialog", FakeDialog)
+
+    panel.result_label.linkActivated.emit("#")
+
+    assert len(opened) == 1
+    assert len(opened[0][0]) == 1
+    assert opened[0][1] == rows
 
 
 def test_generate_from_rows_uses_position_code_field_directly():

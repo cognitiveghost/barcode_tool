@@ -88,7 +88,36 @@ def test_load_items_reports_skipped_rows():
 
     panel.load_items(rows)
 
-    assert panel.result_label.text() == "1 item imported (1 row skipped)"
+    assert "1 item imported" in panel.result_label.text()
+    assert "1 row skipped" in panel.result_label.text()
+    assert "show details" in panel.result_label.text()
+
+
+def test_skipped_rows_link_opens_detail_dialog(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    rows = [
+        {"sku": "SKU1", "position_code": "H011A"},
+        {"sku": "", "position_code": "H012A"},
+    ]
+    panel.load_items(rows)
+
+    opened = []
+
+    class FakeDialog:
+        def __init__(self, skipped_rows, raw_rows, parent=None):
+            opened.append((skipped_rows, raw_rows))
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.SkippedRowsDialog", FakeDialog)
+
+    panel.result_label.linkActivated.emit("#")
+
+    assert len(opened) == 1
+    assert len(opened[0][0]) == 1
+    assert opened[0][1] == rows
 
 
 def test_load_items_raises_when_no_valid_rows():

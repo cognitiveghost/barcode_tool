@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.core.position_generator import format_position_code, parse_position_code
+from app.core.position_generator import SkippedRow, format_position_code, parse_position_code
 
 INVENTORY_CSV_FIELDS = [
     ("sku", "SKU (required)"),
@@ -27,9 +27,9 @@ class InventoryItem:
     client: str = ""
 
 
-def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[int]]:
+def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[SkippedRow]]:
     items: list[InventoryItem] = []
-    skipped_rows: list[int] = []
+    skipped_rows: list[SkippedRow] = []
     for row_number, row in enumerate(rows, start=1):
         try:
             sku = (row.get("sku") or "").strip()
@@ -59,6 +59,6 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                     client=(row.get("client") or "").strip(),
                 )
             )
-        except ValueError:
-            skipped_rows.append(row_number)
+        except ValueError as error:
+            skipped_rows.append(SkippedRow(row_number, str(error)))
     return items, skipped_rows
