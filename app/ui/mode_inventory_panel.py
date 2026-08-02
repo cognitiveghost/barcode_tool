@@ -44,6 +44,12 @@ def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
     return description
 
 
+def _validate_inventory_mapping(mapping: dict[str, int | None]) -> str | None:
+    if mapping.get("sku") is not None:
+        return None
+    return "SKU must be mapped"
+
+
 class InventoryModePanel(QWidget):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
@@ -164,7 +170,14 @@ class InventoryModePanel(QWidget):
         return checked
 
     def _on_import_csv_clicked(self) -> None:
-        dialog = CsvImportDialog(INVENTORY_CSV_FIELDS, parent=self)
+        dialog = CsvImportDialog(
+            INVENTORY_CSV_FIELDS,
+            parent=self,
+            settings=self._settings,
+            mode="inventory",
+            validate_mapping=_validate_inventory_mapping,
+            row_would_be_skipped=lambda row: len(items_from_csv_rows([row])[0]) == 0,
+        )
         if not dialog.exec():
             return
         try:

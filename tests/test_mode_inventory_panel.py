@@ -175,7 +175,7 @@ def test_import_csv_button_opens_dialog_and_loads_items(monkeypatch):
     fake_rows = [{"sku": "SKU1", "position_code": "H011A"}]
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -196,7 +196,7 @@ def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
     panel = InventoryModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -217,7 +217,7 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     panel = InventoryModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):

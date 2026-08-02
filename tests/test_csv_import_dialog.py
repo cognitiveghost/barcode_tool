@@ -1,10 +1,25 @@
 import csv
 
+import pytest
 from PySide6.QtWidgets import QApplication, QHeaderView, QMessageBox
 
 from app.ui.csv_import_dialog import CsvImportDialog
 
 FIELDS = [("corridor", "Corridor"), ("number", "Number"), ("height", "Height")]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_settings_dir(monkeypatch, tmp_path):
+    # accept() calls default_settings_path() (imported directly into
+    # app.ui.csv_import_dialog, so patching app.core.config's copy alone
+    # would not reach it - see the same double-patch in test_main_window.py)
+    # to persist a confirmed mapping. Redirect it so a test that exercises
+    # the real accept() never writes into the developer's actual
+    # ~/.barcode_tool directory.
+    monkeypatch.setattr(
+        "app.ui.csv_import_dialog.default_settings_path",
+        lambda: tmp_path / "settings.json",
+    )
 
 
 def _app():
@@ -214,3 +229,96 @@ def test_duplicate_header_names_are_selectable_by_column(tmp_path):
     assert dialog.get_mapped_rows() == [{"sku": "A1", "alt": "B2"}]
     assert dialog.field_combos["sku"].itemText(1) == "code (col 1)"
     assert dialog.field_combos["sku"].itemText(3) == "code (col 3)"
+
+
+def test_recalled_mapping_is_preselected_on_matching_header(tmp_path):
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Corridor", "Number", "Height"], ["H", "029", "A"]])
+    settings = {"csv_mappings": {}}
+
+    first = CsvImportDialog(FIELDS, settings=settings, mode="positions")
+    first.load_csv(path)
+    first.field_combos["corridor"].setCurrentIndex(1)
+    first.field_combos["number"].setCurrentIndex(2)
+    first.accept()
+
+    second = CsvImportDialog(FIELDS, settings=settings, mode="positions")
+    second.load_csv(path)
+
+    assert second.field_combos["corridor"].currentData() == 0
+    assert second.field_combos["number"].currentData() == 1
+
+
+def test_dialog_without_settings_still_auto_maps_by_name(tmp_path):
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Corridor", "Number", "Height"], ["H", "029", "A"]])
+
+    dialog = CsvImportDialog(FIELDS)  # no settings/mode - recall disabled
+    dialog.load_csv(path)
+
+    assert dialog.field_combos["corridor"].currentData() == 0
+    assert dialog.field_combos["number"].currentData() == 1
+    assert dialog.field_combos["height"].currentData() == 2
+
+
+def test_ok_button_disabled_until_validator_is_satisfied(tmp_path):
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Junk"], ["nothing useful"]])
+    dialog = CsvImportDialog(
+        FIELDS,
+        validate_mapping=lambda mapping: None if mapping.get("corridor") is not None else "Map Corridor",
+    )
+
+    dialog.load_csv(path)
+
+    assert not dialog._ok_button.isEnabled()
+    assert dialog._reason_label.text() == "Map Corridor"
+
+    dialog.field_combos["corridor"].setCurrentIndex(1)
+
+    assert dialog._ok_button.isEnabled()
+    assert dialog._reason_label.text() == ""
+
+
+def test_ok_button_stays_enabled_without_a_validator(tmp_path):
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Junk"], ["nothing useful"]])
+    dialog = CsvImportDialog(FIELDS)  # no validate_mapping - always enabled
+
+    dialog.load_csv(path)
+
+    assert dialog._ok_button.isEnabled()
+
+
+def test_preview_marks_a_row_that_would_be_skipped(tmp_path):
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Corridor", "Number"], ["H", "029"], ["H", "not-a-number"]])
+    dialog = CsvImportDialog(
+        FIELDS,
+        row_would_be_skipped=lambda row: not row.get("number", "").isdigit(),
+    )
+    dialog.load_csv(path)
+    dialog.field_combos["corridor"].setCurrentIndex(1)
+    dialog.field_combos["number"].setCurrentIndex(2)
+
+    good_item = dialog.preview_table.item(0, 0)
+    bad_item = dialog.preview_table.item(1, 0)
+
+    assert good_item.background().color().name() != bad_item.background().color().name()
+
+
+def test_accepting_without_settings_does_not_raise(tmp_path):
+    # Regression guard: accept() must be a no-op wrt persistence when
+    # settings/mode are None, not raise on missing state.
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Corridor"], ["H"]])
+    dialog = CsvImportDialog(FIELDS)
+    dialog.load_csv(path)
+
+    dialog.accept()  # must not raise

@@ -41,6 +41,14 @@ POSITION_CSV_FIELDS = [
 ]
 
 
+def _validate_position_mapping(mapping: dict[str, int | None]) -> str | None:
+    has_position_code = mapping.get("position_code") is not None
+    has_components = mapping.get("corridor") is not None and mapping.get("number") is not None
+    if has_position_code or has_components:
+        return None
+    return "Map Position code, or both Corridor and Number"
+
+
 class PositionsModePanel(QWidget):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
@@ -212,7 +220,14 @@ class PositionsModePanel(QWidget):
         return results
 
     def _on_import_csv_clicked(self) -> None:
-        dialog = CsvImportDialog(POSITION_CSV_FIELDS, parent=self)
+        dialog = CsvImportDialog(
+            POSITION_CSV_FIELDS,
+            parent=self,
+            settings=self._settings,
+            mode="positions",
+            validate_mapping=_validate_position_mapping,
+            row_would_be_skipped=lambda row: len(codes_from_csv_rows([row])[0]) == 0,
+        )
         if not dialog.exec():
             return
         try:

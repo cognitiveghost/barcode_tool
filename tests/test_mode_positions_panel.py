@@ -288,7 +288,7 @@ def test_import_csv_button_opens_dialog_and_generates_from_rows(monkeypatch):
     fake_rows = [{"corridor": "H", "number": "029", "height": ""}]
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -309,7 +309,7 @@ def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
     panel = PositionsModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -330,7 +330,7 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     panel = PositionsModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
