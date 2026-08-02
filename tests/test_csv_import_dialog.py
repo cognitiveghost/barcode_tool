@@ -1,6 +1,6 @@
 import csv
 
-from PySide6.QtWidgets import QApplication, QHeaderView
+from PySide6.QtWidgets import QApplication, QHeaderView, QMessageBox
 
 from app.ui.csv_import_dialog import CsvImportDialog
 
@@ -155,3 +155,47 @@ def test_dialog_preselects_the_detected_encoding(tmp_path):
     dialog.load_csv(path)
 
     assert dialog.encoding_combo.currentData() == "cp1251"
+
+
+def test_load_csv_with_undecodable_file_shows_warning_instead_of_crashing(tmp_path, monkeypatch):
+    _app()
+    # Same corrupt-UTF-16-BOM fixture used in tests/test_csv_import.py: a
+    # UTF-16LE BOM followed by an unpaired surrogate, which read_csv raises
+    # ValueError on. Uncaught, that ValueError used to propagate out of this
+    # Qt-slot-reachable method with no feedback to the operator.
+    path = tmp_path / "garbage.csv"
+    path.write_bytes(b"\xff\xfe\x00\xd8A\x00")
+    dialog = CsvImportDialog(FIELDS)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    dialog.load_csv(path)  # must not raise
+
+    assert len(warnings) == 1
+    assert dialog._header == []
+    assert dialog._rows == []
+
+
+def test_failed_override_leaves_previous_parse_intact(tmp_path, monkeypatch):
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Corridor", "Number"], ["H", "029"]])
+    dialog = CsvImportDialog(FIELDS)
+    dialog.load_csv(path)
+    previous_header, previous_rows = dialog._header, dialog._rows
+
+    def _boom(*args, **kwargs):
+        raise ValueError("boom")
+
+    # The initial load above already succeeded with the real read_csv; only
+    # the subsequent override attempt (triggered below) needs to fail.
+    monkeypatch.setattr("app.ui.csv_import_dialog.read_csv", _boom)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    index = dialog.delimiter_combo.findData(";")
+    dialog.delimiter_combo.setCurrentIndex(index)  # triggers _on_override_changed
+
+    assert len(warnings) == 1
+    assert dialog._header == previous_header
+    assert dialog._rows == previous_rows

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHeaderView,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -79,8 +80,12 @@ class CsvImportDialog(QDialog):
             self.load_csv(Path(path))
 
     def load_csv(self, path: Path) -> None:
+        try:
+            header, rows, delimiter, encoding = read_csv(path)
+        except ValueError as error:
+            QMessageBox.warning(self, "Could not read CSV", str(error))
+            return
         self._path = path
-        header, rows, delimiter, encoding = read_csv(path)
         self._apply_loaded_csv(header, rows, delimiter, encoding)
 
     def _apply_loaded_csv(
@@ -111,11 +116,18 @@ class CsvImportDialog(QDialog):
     def _on_override_changed(self) -> None:
         if self._path is None:
             return
-        header, rows, delimiter, encoding = read_csv(
-            self._path,
-            delimiter=self.delimiter_combo.currentData(),
-            encoding=self.encoding_combo.currentData(),
-        )
+        try:
+            header, rows, delimiter, encoding = read_csv(
+                self._path,
+                delimiter=self.delimiter_combo.currentData(),
+                encoding=self.encoding_combo.currentData(),
+            )
+        except ValueError as error:
+            # Leave _header/_rows/combos exactly as they were before this
+            # override attempt - a bad override shouldn't wipe out a
+            # previously-successful parse.
+            QMessageBox.warning(self, "Could not read CSV", str(error))
+            return
         self._apply_loaded_csv(header, rows, delimiter, encoding)
 
     def _current_mapping(self) -> dict[str, str | None]:
