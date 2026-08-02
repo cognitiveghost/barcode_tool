@@ -85,3 +85,23 @@ def test_save_writes_print_mode_and_raw_zpl_target_to_disk(tmp_path):
     saved = load_settings(settings_path)
     assert saved["print_mode"] == "raw_zpl"
     assert saved["raw_zpl_target"] == "/dev/usb/lp0"
+
+
+def test_consolidate_audit_log_button_reports_merged_count(monkeypatch, tmp_path):
+    _app()
+    from app.core.audit_log import append_print_log
+
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H029")
+
+    settings = {**DEFAULT_SETTINGS, "shared_folder": str(tmp_path)}
+    window = SettingsWindow(settings, settings_path=None)
+    messages = []
+    monkeypatch.setattr(
+        "app.ui.settings_window.QMessageBox.information",
+        lambda *args, **kwargs: messages.append(args),
+    )
+
+    window._consolidate_audit_log()
+
+    assert len(messages) == 1
+    assert "1" in messages[0][2]

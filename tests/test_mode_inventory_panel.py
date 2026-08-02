@@ -244,8 +244,9 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
     panel.print_checked_items(output_pdf_path=pdf_path)
 
     assert pdf_path.exists()
-    log_path = tmp_path / "audit_log.csv"
-    rows = list(csv.reader(log_path.read_text(encoding="utf-8").splitlines()))
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 1
+    rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 2  # header + one entry
     assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2"]
 
@@ -275,7 +276,7 @@ def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
     debug_pdfs = list(shared_folder.glob("inventory_label_preview_*.pdf"))
     assert len(debug_pdfs) == 1
     assert debug_pdfs[0].stat().st_size > 0
-    assert (shared_folder / "audit_log.csv").exists()
+    assert len(list(shared_folder.glob("audit/*.csv"))) == 1
 
 
 def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_path(
@@ -321,8 +322,8 @@ def test_print_checked_items_skips_unchecked_rows(tmp_path):
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
-    log_path = tmp_path / "audit_log.csv"
-    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
     assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1"]
 
 

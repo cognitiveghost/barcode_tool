@@ -241,9 +241,8 @@ class PositionsModePanel(QWidget):
         else:
             description = self.generated_codes[0]
 
-        log_path = Path(shared_folder) / "audit_log.csv"
         append_print_log(
-            log_path,
+            shared_folder,
             mode="positions",
             warehouse_prefix=warehouse_prefix,
             count=len(self.generated_codes),

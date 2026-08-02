@@ -222,11 +222,10 @@ class InventoryModePanel(QWidget):
             output_pdf_path=debug_pdf_path,
         )
 
-        log_path = Path(shared_folder) / "audit_log.csv"
         description = _describe_skus([item.sku for item in checked])
         try:
             append_print_log(
-                log_path,
+                shared_folder,
                 mode="inventory",
                 warehouse_prefix=warehouse_prefix,
                 count=len(checked),

@@ -120,8 +120,9 @@ def test_print_current_labels_writes_pdf_and_log(tmp_path):
     panel.print_current_labels(output_pdf_path=pdf_path)
 
     assert pdf_path.exists()
-    log_path = tmp_path / "audit_log.csv"
-    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 1
+    log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
     assert len(log_lines) == 2  # header + one entry
     assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030"]
 
@@ -172,7 +173,7 @@ def test_print_current_labels_falls_back_to_settings_dir_when_shared_folder_empt
 
     panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
 
-    assert (tmp_path / "audit_log.csv").exists()
+    assert len(list((tmp_path / "audit").glob("*.csv"))) == 1
 
 
 def test_print_uses_preset_from_generate_time_not_live_combo(monkeypatch, tmp_path):
@@ -368,7 +369,9 @@ def test_print_current_labels_raises_archive_error_after_successful_print(tmp_pa
         panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
 
     assert (tmp_path / "out.pdf").exists()
-    log_lines = (tmp_path / "audit_log.csv").read_text(encoding="utf-8").strip().splitlines()
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 1
+    log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
     assert len(log_lines) == 2  # header + one entry - logged despite the archive failure
 
 

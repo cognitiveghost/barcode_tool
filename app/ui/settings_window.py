@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from app.core.config import load_settings, save_settings
+from app.core.audit_log import consolidate_audit_log
+from app.core.config import default_settings_path, load_settings, save_settings
 
 
 class SettingsWindow(QDialog):
@@ -33,6 +34,9 @@ class SettingsWindow(QDialog):
         folder_row = QHBoxLayout()
         folder_row.addWidget(self.shared_folder_edit)
         folder_row.addWidget(browse_button)
+
+        consolidate_button = QPushButton("Consolidate audit log")
+        consolidate_button.clicked.connect(self._consolidate_audit_log)
 
         self.printer_combo = QComboBox()
         printer_names = [p.printerName() for p in QPrinterInfo.availablePrinters()]
@@ -77,6 +81,7 @@ class SettingsWindow(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addLayout(folder_row)
+        layout.addWidget(consolidate_button)
         layout.addWidget(self.printer_combo)
         layout.addWidget(self.print_mode_combo)
         layout.addWidget(self.raw_zpl_target_edit)
@@ -88,6 +93,18 @@ class SettingsWindow(QDialog):
         folder = QFileDialog.getExistingDirectory(self, "Select shared folder")
         if folder:
             self.shared_folder_edit.setText(folder)
+
+    def _consolidate_audit_log(self) -> None:
+        shared_folder = self.shared_folder_edit.text() or str(default_settings_path().parent)
+        merged = consolidate_audit_log(Path(shared_folder))
+        if merged:
+            QMessageBox.information(
+                self, "Audit log consolidated", f"Merged {merged} row(s) into audit_log.csv."
+            )
+        else:
+            QMessageBox.information(
+                self, "Audit log consolidated", "No per-print audit files found to merge."
+            )
 
     def _add_warehouse_row(self, name: str, prefix: str) -> None:
         row = self.warehouse_table.rowCount()
