@@ -88,8 +88,12 @@ def test_list_presets_seeds_a_readme_explaining_the_overwrite(tmp_path):
     assert "REWRITTEN" in readme
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores write permission")
+# One condition, not two decorators: both are evaluated at import time, so a
+# separate skipif still calls os.geteuid() on Windows, where it does not exist.
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, and root ignores them",
+)
 def test_list_presets_survives_a_read_only_shared_folder(tmp_path):
     # Shared folders are often mounted read-only for most operators. Failing
     # to reseed must degrade to "list what is there", not crash app startup.
