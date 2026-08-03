@@ -486,3 +486,57 @@ def test_generate_from_rows_without_warehouse_raises():
 
     with pytest.raises(ValueError, match="warehouse"):
         panel.generate_from_rows([{"corridor": "H", "number": "029"}])
+
+
+def test_letter_fields_force_uppercase():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.setText("h")
+    panel.height_from_edit.setText("a")
+    panel.height_to_edit.setText("c")
+
+    assert panel.corridor_edit.text() == "H"
+    assert panel.height_from_edit.text() == "A"
+    assert panel.height_to_edit.text() == "C"
+
+
+def test_empty_letter_fields_are_still_empty_strings():
+    # An input mask can leave placeholder characters behind; the panel's
+    # `text() or None` logic depends on empty staying "".
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert panel.corridor_edit.text() == ""
+    assert panel.height_from_edit.text() == ""
+
+
+def test_height_applies_without_a_checkbox():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.height_from_edit.setText("A")
+    panel.height_to_edit.setText("B")
+
+    results = panel.generate()
+
+    assert [code for code, _ in results] == ["H029A", "H029B"]
+
+
+def test_no_height_letter_means_no_height_suffix():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    results = panel.generate()
+
+    assert [code for code, _ in results] == ["H029"]
+
+
+def test_height_checkbox_is_gone():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert not hasattr(panel, "height_enabled_check")

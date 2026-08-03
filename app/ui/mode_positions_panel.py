@@ -4,10 +4,9 @@ from pathlib import Path
 
 from barcode.errors import BarcodeError
 from PIL import Image
-from PySide6.QtCore import Qt, QRegularExpression
-from PySide6.QtGui import QIntValidator, QRegularExpressionValidator
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFormLayout,
     QLabel,
@@ -30,8 +29,6 @@ from app.core.template_renderer import TemplatePreset, list_presets, render_reco
 from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
-
-_LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
 
 POSITION_CSV_FIELDS = [
     ("position_code", "Position code (overrides corridor/number/height)"),
@@ -60,21 +57,17 @@ class PositionsModePanel(QWidget):
 
         self.warehouse_combo = QComboBox()
         self.corridor_edit = QLineEdit()
-        self.corridor_edit.setValidator(_LETTER_VALIDATOR)
-        self.corridor_edit.setMaxLength(1)
+        self.corridor_edit.setInputMask(">a")
         self.number_from_edit = QLineEdit()
         self.number_from_edit.setValidator(QIntValidator(0, NUMBER_MAX, self))
         self.number_to_edit = QLineEdit()
         self.number_to_edit.setValidator(QIntValidator(0, NUMBER_MAX, self))
         self.number_to_edit.setPlaceholderText("same as from (optional)")
 
-        self.height_enabled_check = QCheckBox("Use height")
         self.height_from_edit = QLineEdit()
-        self.height_from_edit.setValidator(_LETTER_VALIDATOR)
-        self.height_from_edit.setMaxLength(1)
+        self.height_from_edit.setInputMask(">a")
         self.height_to_edit = QLineEdit()
-        self.height_to_edit.setValidator(_LETTER_VALIDATOR)
-        self.height_to_edit.setMaxLength(1)
+        self.height_to_edit.setInputMask(">a")
 
         self.custom_text_edit = QLineEdit()
 
@@ -98,7 +91,6 @@ class PositionsModePanel(QWidget):
         form.addRow("Corridor", self.corridor_edit)
         form.addRow("Number from", self.number_from_edit)
         form.addRow("Number to", self.number_to_edit)
-        form.addRow(self.height_enabled_check)
         form.addRow("Height from", self.height_from_edit)
         form.addRow("Height to", self.height_to_edit)
         form.addRow("Custom text", self.custom_text_edit)
@@ -153,8 +145,6 @@ class PositionsModePanel(QWidget):
     def generate(self) -> list[tuple[str, Image.Image]]:
         height_from = self.height_from_edit.text() or None
         height_to = self.height_to_edit.text() or None
-        if not self.height_enabled_check.isChecked():
-            height_from = height_to = None
 
         codes = generate_position_codes(
             self.corridor_edit.text(),
