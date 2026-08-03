@@ -83,7 +83,7 @@ def test_corridor_field_accepts_single_letter():
     panel = PositionsModePanel(SETTINGS)
 
     panel.corridor_edit.insert("H")
-    panel.corridor_edit.insert("X")  # second letter must be rejected (maxLength=1)
+    panel.corridor_edit.insert("X")  # second letter must be rejected (input mask has one letter slot)
 
     assert panel.corridor_edit.text() == "H"
 
