@@ -516,6 +516,66 @@ def test_print_button_click_without_items_shows_warning(monkeypatch):
     assert len(warnings) == 1
 
 
+def test_checked_items_survive_sorting():
+    # checked_items() used to map table row -> self.items[row]; sorting the view
+    # would have printed labels for whichever items happened to land on the
+    # checked rows.
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "ZZZ", "position_code": "H011A"},
+        {"sku": "AAA", "position_code": "H012A"},
+    ])
+    panel._set_all_checked(False)
+    panel.items_table.item(0, 0).setCheckState(Qt.CheckState.Checked)  # ZZZ
+
+    panel.items_table.sortItems(1, Qt.SortOrder.AscendingOrder)
+
+    assert [item.sku for item in panel.checked_items()] == ["ZZZ"]
+
+
+def test_filter_hides_non_matching_rows():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "WIDGET1", "position_code": "H011A"},
+        {"sku": "GADGET2", "position_code": "H012A"},
+    ])
+
+    panel.filter_edit.setText("widget")
+
+    assert not panel.items_table.isRowHidden(0)
+    assert panel.items_table.isRowHidden(1)
+
+
+def test_hidden_rows_are_still_printed_if_checked():
+    # Filtering is a view concern. Silently dropping checked-but-filtered items
+    # would be the same class of bug as the sorting one.
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "WIDGET1", "position_code": "H011A"},
+        {"sku": "GADGET2", "position_code": "H012A"},
+    ])
+
+    panel.filter_edit.setText("widget")
+
+    assert len(panel.checked_items()) == 2
+
+
+def test_selection_count_updates_live():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "SKU1", "position_code": "H011A"},
+        {"sku": "SKU2", "position_code": "H012A"},
+    ])
+
+    panel._set_all_checked(False)
+
+    assert panel.selection_label.text() == "0 of 2 selected"
+
+
 def test_client_column_populated_from_item():
     _app()
     panel = InventoryModePanel(SETTINGS)

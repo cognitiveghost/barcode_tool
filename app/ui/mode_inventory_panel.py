@@ -10,7 +10,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -90,6 +92,16 @@ class InventoryModePanel(QWidget):
 
         self.items_table = QTableWidget(0, len(TABLE_COLUMNS))
         self.items_table.setHorizontalHeaderLabels(TABLE_COLUMNS)
+        self.items_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.items_table.itemChanged.connect(lambda _item: self._update_selection_label())
+
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Filter by SKU, name or position")
+        self.filter_edit.textChanged.connect(self._apply_filter)
+
+        self.selection_label = QLabel("0 of 0 selected")
 
         self.print_button = QPushButton("Print")
         self.print_button.clicked.connect(self._on_print_clicked)
@@ -107,6 +119,8 @@ class InventoryModePanel(QWidget):
         layout.addWidget(self.import_csv_button)
         layout.addWidget(self.result_label)
         layout.addLayout(select_buttons)
+        layout.addWidget(self.filter_edit)
+        layout.addWidget(self.selection_label)
         layout.addWidget(self.items_table)
         layout.addWidget(self.print_button)
 
@@ -156,11 +170,19 @@ class InventoryModePanel(QWidget):
         return items
 
     def _populate_table(self, items: list[InventoryItem]) -> None:
+        self.items_table.setSortingEnabled(False)
+        # itemChanged fires once per setItem and the handler counts every row.
+        # With 2000 SKUs that is 14 000 signals x a 2000-row scan; block them
+        # and update the count once at the end.
+        self.items_table.blockSignals(True)
         self.items_table.setRowCount(len(items))
         for row_index, item in enumerate(items):
             check_item = QTableWidgetItem()
             check_item.setFlags(check_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             check_item.setCheckState(Qt.CheckState.Checked)
+            # The row carries its own item: the table can be re-sorted, so the
+            # row index is not a stable key into self.items.
+            check_item.setData(Qt.ItemDataRole.UserRole, item)
             self.items_table.setItem(row_index, 0, check_item)
 
             values = [item.sku, item.name, item.client, item.position_code, item.batch, item.expiry]
@@ -168,6 +190,9 @@ class InventoryModePanel(QWidget):
                 cell = QTableWidgetItem(value)
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.items_table.setItem(row_index, column, cell)
+        self.items_table.blockSignals(False)
+        self.items_table.setSortingEnabled(True)
+        self._update_selection_label()
 
     def _set_all_checked(self, checked: bool) -> None:
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
@@ -175,14 +200,29 @@ class InventoryModePanel(QWidget):
             check_item = self.items_table.item(row, 0)
             if check_item is not None:
                 check_item.setCheckState(state)
+        self._update_selection_label()
 
     def checked_items(self) -> list[InventoryItem]:
         checked = []
         for row in range(self.items_table.rowCount()):
             check_item = self.items_table.item(row, 0)
             if check_item is not None and check_item.checkState() == Qt.CheckState.Checked:
-                checked.append(self.items[row])
+                checked.append(check_item.data(Qt.ItemDataRole.UserRole))
         return checked
+
+    def _apply_filter(self, text: str) -> None:
+        needle = text.strip().lower()
+        for row in range(self.items_table.rowCount()):
+            check_item = self.items_table.item(row, 0)
+            item = check_item.data(Qt.ItemDataRole.UserRole) if check_item else None
+            haystack = (
+                f"{item.sku} {item.name} {item.position_code}".lower() if item else ""
+            )
+            self.items_table.setRowHidden(row, bool(needle) and needle not in haystack)
+
+    def _update_selection_label(self) -> None:
+        total = self.items_table.rowCount()
+        self.selection_label.setText(f"{len(self.checked_items())} of {total} selected")
 
     def _on_import_csv_clicked(self) -> None:
         dialog = CsvImportDialog(
