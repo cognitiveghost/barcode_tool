@@ -251,7 +251,6 @@ class PositionsModePanel(QWidget):
                 "visible_text": display_position_code(code),
                 "user_text": custom_text,
                 "warehouse_prefix": warehouse_prefix,
-                "custom_text": custom_text,
             }
             for code in codes
         ]
