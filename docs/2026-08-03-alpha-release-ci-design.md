@@ -26,9 +26,13 @@ build machine.
 
 - **Windows**: no OS-level shared-library search path exists for arbitrary
   installed DLLs. WeasyPrint's own workaround is the
-  `WEASYPRINT_DLL_DIRECTORIES` env var. CI sets it via `GITHUB_ENV` for the
-  test step; the shipped app has no such step, so it must set the
-  equivalent itself at startup.
+  `WEASYPRINT_DLL_DIRECTORIES` env var, which it reads via
+  `os.add_dll_directory()` — but only when
+  `not hasattr(sys, 'frozen')` (`weasyprint/text/ffi.py:467`). A frozen
+  PyInstaller build **is** `sys.frozen`, so WeasyPrint deliberately skips
+  that logic in a frozen app — setting the env var would silently do
+  nothing. The app must call `os.add_dll_directory()` itself at startup
+  instead of relying on WeasyPrint to read the env var.
 - **Linux**: `ctypes.util.find_library` resolves through the standard
   linker cache (`ldconfig`), which is why `ci.yml` needs no Pango step for
   Ubuntu at all. Nothing to bundle — just document the apt packages as a
@@ -52,14 +56,14 @@ build machine.
    import sys
    from pathlib import Path
 
-   if getattr(sys, "frozen", False):
-       os.environ["WEASYPRINT_DLL_DIRECTORIES"] = str(
-           Path(sys.executable).parent / "gtk-dlls"
-       )
+   if getattr(sys, "frozen", False) and hasattr(os, "add_dll_directory"):
+       os.add_dll_directory(str(Path(sys.executable).parent / "gtk-dlls"))
    ```
 
-   Guarded by `sys.frozen` so normal `python -m app.main` / `run.sh` /
-   pytest runs are untouched.
+   `hasattr(os, "add_dll_directory")` is only true on Windows, so this is
+   a no-op on the Linux build even though it's frozen too. Guarded by
+   `sys.frozen` so normal `python -m app.main` / `run.sh` / pytest runs
+   are untouched.
 5. Zip `dist/BarcodeTool/` → `BarcodeTool-windows-<tag>.zip`.
 
 ## Linux build
