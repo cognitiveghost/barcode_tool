@@ -396,6 +396,14 @@ def test_print_button_click_without_warehouse_shows_warning(monkeypatch):
 
 
 def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp_path):
+    # Not a brief scenario: the button click now opens PrintPreviewDialog
+    # rather than printing directly, so this OSError-propagation behavior is
+    # exercised at the print_checked_items level (same pattern as
+    # test_print_current_labels_skips_archive_when_send_to_printer_raises in
+    # test_mode_positions_panel.py) - the button-click-shows-warning half of
+    # this scenario is now covered generically by
+    # test_confirm_failure_shows_warning_and_does_not_close in
+    # test_print_preview_dialog.py.
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = InventoryModePanel(settings)
@@ -410,16 +418,16 @@ def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp
         "app.core.print_batch.append_print_log",
         lambda *a, **k: log_calls.append(True),
     )
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    panel.print_button.click()
+    with pytest.raises(OSError):
+        panel.print_checked_items()
 
-    assert warnings[0][1] == "Print failed"
     assert log_calls == []
 
 
 def test_audit_log_failure_reports_a_warning_after_successful_print(monkeypatch, tmp_path):
+    # See comment on test_print_failure_reports_print_failed_and_skips_audit_log
+    # above - same reasoning, exercised at the print_checked_items level now.
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = InventoryModePanel(settings)
@@ -435,14 +443,12 @@ def test_audit_log_failure_reports_a_warning_after_successful_print(monkeypatch,
         lambda *a, **k: print_calls.append(True),
     )
     monkeypatch.setattr("app.core.print_batch.append_print_log", _log_boom)
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    panel.print_button.click()
+    result = panel.print_checked_items()
 
     assert print_calls == [True, True]  # physical print + archive render
-    assert warnings[0][1] == "Printed with warnings"
-    assert "audit log" in warnings[0][2].lower()
+    assert len(result.warnings) == 1
+    assert "audit log" in result.warnings[0].lower()
 
 
 def test_describe_skus_dedupes_repeated_sku():
@@ -454,18 +460,29 @@ def test_describe_skus_caps_long_lists():
     assert _describe_skus(skus) == "SKU0, SKU1, SKU2, SKU3, SKU4 +2 more"
 
 
-def test_print_button_click_invokes_print_checked_items(monkeypatch):
+def test_print_button_click_opens_preview_dialog_wired_to_print_checked_items(monkeypatch, tmp_path):
     _app()
-    panel = InventoryModePanel(SETTINGS)
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
     calls = []
-    monkeypatch.setattr(
-        panel, "print_checked_items",
-        lambda: (calls.append(True), BatchResult(count=0, archive_path=None, warnings=[]))[1],
-    )
+
+    class FakeDialog:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.PrintPreviewDialog", FakeDialog)
 
     panel.print_button.click()
 
-    assert calls == [True]
+    assert len(calls) == 1
+    assert calls[0]["count"] == 1
+    assert calls[0]["on_confirm"] == panel.print_checked_items
 
 
 def test_print_button_click_without_items_shows_warning(monkeypatch):
@@ -549,22 +566,36 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
     assert record["position_data"] == "C001H011A"  # warehouse prefix + raw position_code
 
 
-def test_print_button_click_shows_combined_warning_message(monkeypatch):
+def test_print_preview_render_page_builds_the_same_record_shape(monkeypatch, tmp_path):
     _app()
-    panel = InventoryModePanel(SETTINGS)
-    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
-    monkeypatch.setattr(
-        panel,
-        "print_checked_items",
-        lambda: BatchResult(
-            count=1, archive_path=None,
-            warnings=["Labels printed, but the audit log entry failed: boom. Do not reprint this batch."],
-        ),
-    )
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "name": "Widget", "position_code": "H011A"}])
+
+    render_calls = []
+
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(records)
+        return [Image.new("RGB", (10, 10)) for _ in records]
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
+
+    captured = {}
+
+    class FakeDialog:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.PrintPreviewDialog", FakeDialog)
 
     panel.print_button.click()
+    captured["render_page"](0)
 
-    assert len(warnings) == 1
-    assert warnings[0][1] == "Printed with warnings"
+    record = render_calls[0][0]
+    assert record["sku"] == "SKU1"
+    assert record["name"] == "Widget"
+    assert record["position_data"] == "C001H011A"

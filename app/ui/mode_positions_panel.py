@@ -26,8 +26,8 @@ from app.core.position_generator import (
 )
 from app.core.print_batch import BatchResult, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
-from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
 POSITION_CSV_FIELDS = [
@@ -134,13 +134,19 @@ class PositionsModePanel(QWidget):
             QMessageBox.warning(self, "Invalid range", str(error))
 
     def _on_print_clicked(self) -> None:
-        try:
-            result = self.print_current_labels()
-        except (ValueError, BarcodeError, OSError, *windows_print_errors()) as error:
-            QMessageBox.warning(self, "Print failed", str(error))
+        if not self.generated_labels:
+            QMessageBox.warning(self, "Print failed", "Nothing to print - generate labels first")
             return
-        if result.warnings:
-            QMessageBox.warning(self, "Printed with warnings", "\n\n".join(result.warnings))
+        dialog = PrintPreviewDialog(
+            count=len(self.generated_labels),
+            render_page=lambda index: self.generated_labels[index],
+            preset=self._generated_preset,
+            settings=self._settings,
+            warehouse_display=self.warehouse_combo.currentText(),
+            on_confirm=self.print_current_labels,
+            parent=self,
+        )
+        dialog.exec()
 
     def generate(self) -> list[tuple[str, Image.Image]]:
         height_from = self.height_from_edit.text() or None
@@ -229,7 +235,9 @@ class PositionsModePanel(QWidget):
         dialog = SkippedRowsDialog(self._last_skipped_rows, self._last_import_rows, parent=self)
         dialog.exec()
 
-    def print_current_labels(self, output_pdf_path: Path | None = None) -> BatchResult:
+    def print_current_labels(
+        self, copies: int = 1, output_pdf_path: Path | None = None
+    ) -> BatchResult:
         if not self.generated_labels:
             raise ValueError("Nothing to print - generate labels first")
 
@@ -246,5 +254,6 @@ class PositionsModePanel(QWidget):
             mode="positions",
             warehouse_prefix=warehouse_prefix,
             description=description,
+            copies=copies,
             output_pdf_path=output_pdf_path,
         )

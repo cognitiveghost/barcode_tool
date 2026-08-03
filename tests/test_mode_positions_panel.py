@@ -141,18 +141,32 @@ def test_generate_without_preset_raises_value_error(monkeypatch, tmp_path):
         panel.generate()
 
 
-def test_print_button_click_invokes_print_current_labels(monkeypatch):
+def test_print_button_click_opens_preview_dialog_wired_to_print_current_labels(monkeypatch, tmp_path):
     _app()
-    panel = PositionsModePanel(SETTINGS)
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.generate()
+
     calls = []
-    monkeypatch.setattr(
-        panel, "print_current_labels",
-        lambda: (calls.append(True), BatchResult(count=0, archive_path=None, warnings=[]))[1],
-    )
+
+    class FakeDialog:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.PrintPreviewDialog", FakeDialog)
 
     panel.print_button.click()
 
-    assert calls == [True]
+    assert len(calls) == 1
+    assert calls[0]["count"] == 1
+    assert calls[0]["on_confirm"] == panel.print_current_labels
+    assert calls[0]["render_page"](0) is panel.generated_labels[0]
 
 
 def test_print_button_click_without_generated_labels_shows_warning(monkeypatch):
@@ -448,26 +462,6 @@ def test_print_current_labels_skips_archive_when_send_to_printer_raises(monkeypa
         panel.print_current_labels()
 
     assert not (tmp_path / "printed_pdfs").exists()
-
-
-def test_print_button_click_shows_combined_warning_message(monkeypatch):
-    _app()
-    panel = PositionsModePanel(SETTINGS)
-    monkeypatch.setattr(
-        panel,
-        "print_current_labels",
-        lambda: BatchResult(
-            count=1, archive_path=None,
-            warnings=["Labels printed, but the PDF archive failed: boom. Do not reprint this batch."],
-        ),
-    )
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
-
-    panel.print_button.click()
-
-    assert len(warnings) == 1
-    assert warnings[0][1] == "Printed with warnings"
 
 
 def test_generate_without_warehouse_raises():

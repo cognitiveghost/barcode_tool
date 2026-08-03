@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -26,8 +27,8 @@ from app.core.inventory_import import (
 from app.core.position_generator import display_position_code
 from app.core.print_batch import BatchResult, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
-from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
@@ -48,6 +49,19 @@ def _validate_inventory_mapping(mapping: dict[str, int | None]) -> str | None:
     if mapping.get("sku") is not None:
         return None
     return "SKU must be mapped"
+
+
+def _record_for_item(item: InventoryItem, warehouse_prefix: str, generated_date: str) -> dict:
+    return {
+        "sku": item.sku,
+        "name": item.name,
+        "client": item.client,
+        "batch": item.batch,
+        "expiry": item.expiry,
+        "position_code": display_position_code(item.position_code),
+        "position_data": f"{warehouse_prefix}{item.position_code}",
+        "generated_date": generated_date,
+    }
 
 
 class InventoryModePanel(QWidget):
@@ -190,15 +204,46 @@ class InventoryModePanel(QWidget):
         dialog.exec()
 
     def _on_print_clicked(self) -> None:
-        try:
-            result = self.print_checked_items()
-        except (ValueError, OSError, *windows_print_errors()) as error:
-            QMessageBox.warning(self, "Print failed", str(error))
+        checked = self.checked_items()
+        if not checked:
+            QMessageBox.warning(
+                self, "Print failed", "Nothing to print - import a CSV and check at least one row"
+            )
             return
-        if result.warnings:
-            QMessageBox.warning(self, "Printed with warnings", "\n\n".join(result.warnings))
+        warehouse_prefix = self.warehouse_combo.currentData()
+        if not warehouse_prefix:
+            QMessageBox.warning(
+                self, "Print failed", "No warehouse selected - add one in Settings first"
+            )
+            return
+        preset: TemplatePreset | None = self.preset_combo.currentData()
+        if preset is None:
+            QMessageBox.warning(
+                self, "Print failed",
+                "No label template selected - check the shared folder's templates directory",
+            )
+            return
 
-    def print_checked_items(self, output_pdf_path: Path | None = None) -> BatchResult:
+        generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
+
+        def render_page(index: int) -> Image.Image:
+            record = _record_for_item(checked[index], warehouse_prefix, generated_date)
+            return render_records(preset, [record])[0]
+
+        dialog = PrintPreviewDialog(
+            count=len(checked),
+            render_page=render_page,
+            preset=preset,
+            settings=self._settings,
+            warehouse_display=self.warehouse_combo.currentText(),
+            on_confirm=self.print_checked_items,
+            parent=self,
+        )
+        dialog.exec()
+
+    def print_checked_items(
+        self, copies: int = 1, output_pdf_path: Path | None = None
+    ) -> BatchResult:
         checked = self.checked_items()
         if not checked:
             raise ValueError("Nothing to print - import a CSV and check at least one row")
@@ -214,20 +259,7 @@ class InventoryModePanel(QWidget):
             )
 
         generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
-
-        records = [
-            {
-                "sku": item.sku,
-                "name": item.name,
-                "client": item.client,
-                "batch": item.batch,
-                "expiry": item.expiry,
-                "position_code": display_position_code(item.position_code),
-                "position_data": f"{warehouse_prefix}{item.position_code}",
-                "generated_date": generated_date,
-            }
-            for item in checked
-        ]
+        records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
         images = render_records(preset, records)
 
         description = _describe_skus([item.sku for item in checked])
@@ -238,5 +270,6 @@ class InventoryModePanel(QWidget):
             mode="inventory",
             warehouse_prefix=warehouse_prefix,
             description=description,
+            copies=copies,
             output_pdf_path=output_pdf_path,
         )
