@@ -1,6 +1,7 @@
 import csv
 
 import pytest
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import QApplication, QHeaderView, QMessageBox
 
 from app.ui.csv_import_dialog import CsvImportDialog
@@ -20,6 +21,14 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
         "app.ui.csv_import_dialog.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
+    # done() (which QDialog.accept()/reject() both call internally, so this
+    # fires even for tests that only call accept()) persists geometry via
+    # qsettings() the same way. An unpatched call would write into the
+    # developer's real ~/.config/barcode_tool store and, worse, leave
+    # geometry there for the *next* test run to restore from - redirect it
+    # to a throwaway ini file per test for the same reason as above.
+    store = QSettings(str(tmp_path / "geometry.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.csv_import_dialog.qsettings", lambda: store)
 
 
 def _app():
@@ -109,14 +118,15 @@ def test_dialog_has_a_bigger_default_size():
     assert dialog.size().height() >= 600
 
 
-def test_preview_table_columns_stretch_to_fill_width():
+def test_preview_columns_size_to_their_contents_not_the_window():
+    # Stretch divided the width across nine fields and truncated every
+    # header, so the operator could not tell which preview column was which.
     _app()
     dialog = CsvImportDialog(FIELDS)
 
-    assert (
-        dialog.preview_table.horizontalHeader().sectionResizeMode(0)
-        == QHeaderView.ResizeMode.Stretch
-    )
+    header = dialog.preview_table.horizontalHeader()
+    assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.ResizeToContents
+    assert not header.stretchLastSection()
 
 
 def test_loading_a_second_file_replaces_column_choices(tmp_path):
@@ -333,3 +343,26 @@ def test_ok_button_disabled_from_construction_when_validator_would_fail():
 
     assert not dialog._ok_button.isEnabled()
     assert dialog._reason_label.text() == "Map Corridor"
+
+
+def test_mapping_form_and_preview_are_in_a_splitter():
+    _app()
+    dialog = CsvImportDialog(FIELDS)
+
+    assert dialog.splitter.count() == 2
+    assert dialog.splitter.orientation() == Qt.Orientation.Vertical
+
+
+def test_dialog_geometry_is_remembered(tmp_path, monkeypatch):
+    _app()
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.csv_import_dialog.qsettings", lambda: store)
+
+    first = CsvImportDialog(FIELDS)
+    first.resize(742, 531)
+    first.done(0)
+
+    second = CsvImportDialog(FIELDS)
+
+    assert second.size().width() == 742
+    assert second.size().height() == 531

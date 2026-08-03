@@ -6,6 +6,8 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
+from PySide6.QtCore import QSettings
+
 DEFAULT_SETTINGS = {
     "shared_folder": "",
     "default_printer": "",
@@ -81,3 +83,9 @@ def load_settings(path: Path, on_recovery: Callable[[str], None] | None = None) 
 
 def save_settings(path: Path, settings: dict) -> None:
     atomic_write_text(path, json.dumps(settings, indent=2, ensure_ascii=False))
+
+
+def qsettings() -> QSettings:
+    # Window geometry is per-machine state. It must never go into
+    # settings.json, which the operator may point at a shared folder.
+    return QSettings("barcode_tool", "barcode_tool")

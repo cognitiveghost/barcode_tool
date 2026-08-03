@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
@@ -14,12 +15,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
-from app.core.config import default_settings_path, save_settings
+from app.core.config import default_settings_path, qsettings, save_settings
 from app.core.csv_import import apply_mapping, read_csv
 from app.core.csv_mapping_memory import auto_map_fields, recall_mapping, remember_mapping
 
@@ -86,20 +89,46 @@ class CsvImportDialog(QDialog):
         self._reason_label = QLabel()
         self._reason_label.setVisible(False)
 
+        form_panel = QWidget()
+        form_panel.setLayout(form)
+
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter.addWidget(form_panel)
+        self.splitter.addWidget(self.preview_table)
+        # The preview is what the operator checks before importing; give it
+        # the space when the dialog is resized.
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+
         layout = QVBoxLayout(self)
         layout.addWidget(browse_button)
-        layout.addLayout(form)
-        layout.addWidget(self.preview_table)
+        layout.addWidget(self.splitter)
         layout.addWidget(self._reason_label)
         layout.addWidget(buttons)
 
-        self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header = self.preview_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(False)
         self.resize(900, 600)
+
+        stored = qsettings()
+        geometry = stored.value("csv_import_dialog/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        splitter_state = stored.value("csv_import_dialog/splitter")
+        if splitter_state is not None:
+            self.splitter.restoreState(splitter_state)
 
         # No CSV is loaded yet, so nothing else will trigger this - without
         # it, a validator that would fail on an empty mapping shows OK
         # enabled until the first file loads.
         self._update_ok_state()
+
+    def done(self, result: int) -> None:
+        stored = qsettings()
+        stored.setValue("csv_import_dialog/geometry", self.saveGeometry())
+        stored.setValue("csv_import_dialog/splitter", self.splitter.saveState())
+        super().done(result)
 
     def _on_browse_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Import CSV", filter="CSV files (*.csv)")
