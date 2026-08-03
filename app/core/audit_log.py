@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import getpass
 import os
+import uuid
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
@@ -38,7 +39,13 @@ def append_print_log(
     audit_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc)
     user = sanitize_filename_component(getpass.getuser())
-    filename = f"{timestamp:%Y%m%dT%H%M%S.%f}Z_{user}_{os.getpid()}.csv"
+    # Timestamp + pid alone can collide: two prints from the same process in
+    # quick succession may land in the same clock tick (coarser than a
+    # microsecond on some platforms), and the second would silently
+    # overwrite the first's audit row instead of erroring. A short random
+    # suffix makes every filename unique regardless of clock resolution.
+    unique = uuid.uuid4().hex[:8]
+    filename = f"{timestamp:%Y%m%dT%H%M%S.%f}Z_{user}_{os.getpid()}_{unique}.csv"
 
     with (audit_dir / filename).open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)

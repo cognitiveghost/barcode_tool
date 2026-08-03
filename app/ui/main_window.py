@@ -22,6 +22,7 @@ from app.core.config import (
     load_settings,
     qsettings,
     shared_folder,
+    sync_shared_settings,
 )
 from app.core.logging_setup import configure_logging
 from app.core.print_batch import prune_archive
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
         self._settings_path = default_settings_path()
         configure_logging(self._settings_path.parent)
         self._settings = load_settings(self._settings_path, on_recovery=self._warn_settings_recovered)
+        self._settings = sync_shared_settings(self._settings, self._settings_path)
         prune_archive(self._settings)
         configure_logging(shared_folder(self._settings))
 
@@ -132,7 +134,9 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         dialog = SettingsWindow(self._settings, self._settings_path, parent=self)
         if dialog.exec():
-            self._settings = load_settings(self._settings_path)
+            self._settings = sync_shared_settings(
+                load_settings(self._settings_path), self._settings_path
+            )
             configure_logging(shared_folder(self._settings))
             self.positions_panel.refresh_from_settings(self._settings)
             self.inventory_panel.refresh_from_settings(self._settings)

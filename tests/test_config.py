@@ -9,7 +9,10 @@ from app.core.config import (
     load_settings,
     sanitize_filename_component,
     save_settings,
+    save_shared_settings,
     shared_folder,
+    shared_settings_path,
+    sync_shared_settings,
 )
 
 
@@ -128,3 +131,83 @@ def test_corrupted_settings_load_logs_a_warning(log_records, tmp_path):
     load_settings(path)
 
     assert any("could not be read" in r.getMessage() for r in log_records)
+
+
+def test_shared_settings_path_is_inside_the_shared_folder(tmp_path):
+    local_path = tmp_path / "local" / "settings.json"
+    assert (
+        shared_settings_path({"shared_folder": str(tmp_path)}, local_path) == tmp_path / "settings.json"
+    )
+
+
+def test_shared_settings_path_falls_back_to_the_local_path_when_unconfigured(tmp_path):
+    local_path = tmp_path / "local" / "settings.json"
+    assert shared_settings_path({"shared_folder": ""}, local_path) == local_path
+
+
+def test_sync_shared_settings_seeds_the_shared_file_on_first_configure(tmp_path):
+    shared_dir = tmp_path / "shared"
+    local_path = tmp_path / "local" / "settings.json"
+    settings = {
+        "shared_folder": str(shared_dir),
+        "warehouses": [{"name": "Main", "prefix": "C001"}],
+        "csv_mappings": {"positions": {}},
+    }
+
+    sync_shared_settings(settings, local_path)
+
+    assert (shared_dir / "settings.json").exists()
+    shared = load_settings(shared_dir / "settings.json")
+    assert shared["warehouses"] == [{"name": "Main", "prefix": "C001"}]
+
+
+def test_sync_shared_settings_overlays_from_an_existing_shared_file(tmp_path):
+    shared_dir = tmp_path / "shared"
+    local_path = tmp_path / "local" / "settings.json"
+    save_settings(
+        shared_dir / "settings.json",
+        {**DEFAULT_SETTINGS, "warehouses": [{"name": "FromOtherPC", "prefix": "C002"}]},
+    )
+    settings = {
+        "shared_folder": str(shared_dir),
+        "warehouses": [{"name": "Stale", "prefix": "C001"}],
+        "csv_mappings": {},
+    }
+
+    synced = sync_shared_settings(settings, local_path)
+
+    assert synced["warehouses"] == [{"name": "FromOtherPC", "prefix": "C002"}]
+
+
+def test_sync_shared_settings_is_a_noop_without_a_configured_shared_folder(tmp_path):
+    local_path = tmp_path / "settings.json"
+    settings = {"shared_folder": "", "warehouses": [{"name": "Main", "prefix": "C001"}], "csv_mappings": {}}
+
+    synced = sync_shared_settings(settings, local_path)
+
+    assert synced["warehouses"] == [{"name": "Main", "prefix": "C001"}]
+    assert not local_path.exists()  # no-op: never touched the filesystem
+
+
+def test_save_shared_settings_only_touches_the_keys_it_is_given(tmp_path):
+    shared_dir = tmp_path / "shared"
+    local_path = tmp_path / "local" / "settings.json"
+    save_shared_settings(
+        {"shared_folder": str(shared_dir), "warehouses": [{"name": "Main", "prefix": "C001"}]}, local_path
+    )
+
+    save_shared_settings(
+        {"shared_folder": str(shared_dir), "csv_mappings": {"positions": {"sig": {"sku": 0}}}}, local_path
+    )
+
+    shared = load_settings(shared_dir / "settings.json")
+    assert shared["warehouses"] == [{"name": "Main", "prefix": "C001"}]
+    assert shared["csv_mappings"] == {"positions": {"sig": {"sku": 0}}}
+
+
+def test_save_shared_settings_is_a_noop_without_a_configured_shared_folder(tmp_path):
+    local_path = tmp_path / "settings.json"
+
+    save_shared_settings({"shared_folder": "", "warehouses": [{"name": "Main", "prefix": "C001"}]}, local_path)
+
+    assert not local_path.exists()

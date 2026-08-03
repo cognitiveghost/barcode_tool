@@ -26,13 +26,14 @@ def test_add_and_read_warehouse_row():
 
 def test_save_writes_settings_to_disk(tmp_path):
     _app()
-    settings_path = tmp_path / "settings.json"
+    settings_path = tmp_path / "local" / "settings.json"
     window = SettingsWindow(DEFAULT_SETTINGS, settings_path=settings_path)
-    window.shared_folder_edit.setText("/mnt/shared")
+    shared_folder = str(tmp_path / "shared")
+    window.shared_folder_edit.setText(shared_folder)
     window._save_and_close()
 
     saved = load_settings(settings_path)
-    assert saved["shared_folder"] == "/mnt/shared"
+    assert saved["shared_folder"] == shared_folder
 
 
 def test_save_with_no_settings_path_warns_and_does_not_close(monkeypatch):

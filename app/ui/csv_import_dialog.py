@@ -22,7 +22,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.config import default_settings_path, qsettings, save_settings
+from app.core.config import (
+    default_settings_path,
+    qsettings,
+    save_settings,
+    save_shared_settings,
+)
 from app.core.csv_import import apply_mapping, read_csv
 from app.core.csv_mapping_memory import (
     auto_map_fields,
@@ -248,6 +253,13 @@ class CsvImportDialog(QDialog):
             remember_mapping(self._settings, self._mode, self._header, self._current_mapping())
             try:
                 save_settings(default_settings_path(), self._settings)
+                save_shared_settings(
+                    {
+                        "shared_folder": self._settings.get("shared_folder", ""),
+                        "csv_mappings": self._settings["csv_mappings"],
+                    },
+                    default_settings_path(),
+                )
             except OSError:
                 # A remembered mapping is a convenience; failing to persist
                 # it must never block an import the operator already

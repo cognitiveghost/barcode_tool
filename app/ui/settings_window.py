@@ -25,7 +25,12 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.audit_log import consolidate_audit_log
-from app.core.config import default_settings_path, load_settings, save_settings
+from app.core.config import (
+    default_settings_path,
+    load_settings,
+    save_settings,
+    save_shared_settings,
+)
 
 
 class SettingsWindow(QDialog):
@@ -214,6 +219,13 @@ class SettingsWindow(QDialog):
             full_settings = load_settings(self._settings_path)
             full_settings.update(self.get_current_settings())
             save_settings(self._settings_path, full_settings)
+            save_shared_settings(
+                {
+                    "shared_folder": full_settings["shared_folder"],
+                    "warehouses": full_settings["warehouses"],
+                },
+                self._settings_path,
+            )
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
             return
