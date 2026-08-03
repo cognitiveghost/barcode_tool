@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from blabel import LabelWriter
 from PIL import Image
 
 from app.core import label_tools
+from app.core.config import LOGGER_NAME, atomic_write_text
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "templates" / "examples"
 FONT_CSS = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "fonts.css"
@@ -21,6 +23,8 @@ DEFAULT_DPI = 203
 
 SEEDED_FILES = ("template.html", "style.css", "meta.json")
 
+logger = logging.getLogger(LOGGER_NAME)
+
 
 @dataclass(frozen=True)
 class TemplatePreset:
@@ -32,14 +36,37 @@ class TemplatePreset:
     stylesheet_path: Path
 
 
+_seeded_mode_dirs: set[str] = set()
+
+
 def list_presets(shared_folder: Path, mode: str) -> list[TemplatePreset]:
     mode_dir = Path(shared_folder) / "templates" / mode
-    _seed_examples(mode_dir, mode)
+    # ponytail: seeds each mode_dir once per process instead of on every
+    # panel construction and every settings save - cuts the repeated
+    # multi-file-op cost against a possibly-slow shared folder. Does NOT
+    # make the first seed non-blocking: a genuinely offline share still
+    # stalls MainWindow construction once per process, since this runs
+    # before the Qt event loop starts. Upgrade path: defer the first seed
+    # via a background thread or QTimer.singleShot once the panels no
+    # longer need presets populated synchronously in their own unit tests.
+    key = str(mode_dir)
+    if key not in _seeded_mode_dirs:
+        _seed_examples(mode_dir, mode)
+        _seeded_mode_dirs.add(key)
+
     if not mode_dir.exists():
         return []
 
+    try:
+        preset_dirs = sorted(p for p in mode_dir.iterdir() if p.is_dir())
+    except OSError as error:
+        # A shared folder that goes unreadable between the mkdir above and
+        # here must degrade to "no presets found", not crash app startup.
+        logger.warning("Could not list templates in %s: %s", mode_dir, error)
+        return []
+
     presets = []
-    for preset_dir in sorted(p for p in mode_dir.iterdir() if p.is_dir()):
+    for preset_dir in preset_dirs:
         meta_path = preset_dir / "meta.json"
         if not meta_path.exists():
             continue
@@ -53,9 +80,10 @@ def list_presets(shared_folder: Path, mode: str) -> list[TemplatePreset]:
                 template_path=preset_dir / "template.html",
                 stylesheet_path=preset_dir / "style.css",
             )
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError) as error:
             # These files are hand-edited in a folder several machines share.
             # One typo must cost that preset, not everyone else's app launch.
+            logger.warning("Skipping invalid preset %s: %s", preset_dir, error)
             continue
         presets.append(preset)
     return presets
@@ -84,7 +112,8 @@ def _seed_examples(mode_dir: Path, mode: str) -> None:
         _write_if_changed(
             mode_dir / "README.txt", (EXAMPLES_ROOT / "README.txt").read_text(encoding="utf-8")
         )
-    except OSError:
+    except OSError as error:
+        logger.warning("Could not seed example templates into %s: %s", mode_dir, error)
         return
 
 
@@ -93,7 +122,7 @@ def _write_if_changed(path: Path, content: str) -> None:
     # second machine reading this shared folder sees a half-written file.
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
-    path.write_text(content, encoding="utf-8")
+    atomic_write_text(path, content)
 
 
 def render_records(
@@ -115,4 +144,20 @@ def render_records(
     for page in pdf:
         bitmap = page.render(scale=dpi / 72, grayscale=True)
         images.append(bitmap.to_pil().convert("1", dither=Image.Dither.NONE))
+
+    if images:
+        _check_aspect_ratio(preset, images[0])
+
     return images
+
+
+def _check_aspect_ratio(preset: TemplatePreset, image: Image.Image) -> None:
+    meta_ratio = preset.width_mm / preset.height_mm
+    rendered_ratio = image.width / image.height
+    if abs(rendered_ratio - meta_ratio) / meta_ratio > 0.01:
+        raise ValueError(
+            f"Template '{preset.name}' meta.json size "
+            f"({preset.width_mm}x{preset.height_mm}mm) does not match the "
+            "rendered page size from the template's CSS @page rule - "
+            "check that meta.json and style.css agree."
+        )

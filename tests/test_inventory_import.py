@@ -1,6 +1,5 @@
 from app.core.inventory_import import (
     InventoryItem,
-    _split_combined_expiry_batch,
     items_from_csv_rows,
 )
 
@@ -52,7 +51,17 @@ def test_items_from_csv_rows_skips_missing_sku():
     items, skipped = items_from_csv_rows(rows)
 
     assert [item.sku for item in items] == ["SKU1"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
+
+
+def test_items_from_csv_rows_captures_skip_reason_for_missing_sku():
+    rows = [{"sku": "", "position_code": "H011A"}]
+
+    _items, skipped = items_from_csv_rows(rows)
+
+    assert len(skipped) == 1
+    assert skipped[0].row_number == 1
+    assert "sku" in skipped[0].reason.lower()
 
 
 def test_items_from_csv_rows_skips_malformed_position_code():
@@ -64,7 +73,7 @@ def test_items_from_csv_rows_skips_malformed_position_code():
     items, skipped = items_from_csv_rows(rows)
 
     assert [item.sku for item in items] == ["SKU1"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
 
 
 def test_items_from_csv_rows_skips_position_code_above_number_max():
@@ -76,7 +85,7 @@ def test_items_from_csv_rows_skips_position_code_above_number_max():
     items, skipped = items_from_csv_rows(rows)
 
     assert [item.sku for item in items] == ["SKU1"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
 
 
 def test_items_from_csv_rows_keeps_multiple_positions_for_same_sku():
@@ -89,40 +98,6 @@ def test_items_from_csv_rows_keeps_multiple_positions_for_same_sku():
 
     assert [item.position_code for item in items] == ["H011A", "H014B"]
     assert skipped == []
-
-
-def test_split_combined_expiry_batch_when_expiry_has_slash():
-    assert _split_combined_expiry_batch("2027-03/4471", "") == ("2027-03", "4471")
-
-
-def test_split_combined_expiry_batch_when_batch_has_slash():
-    assert _split_combined_expiry_batch("", "2027-03/4471") == ("2027-03", "4471")
-
-
-def test_split_combined_expiry_batch_noop_when_both_populated():
-    assert _split_combined_expiry_batch("2027-03", "4471") == ("2027-03", "4471")
-
-
-def test_split_combined_expiry_batch_noop_when_neither_has_slash():
-    assert _split_combined_expiry_batch("", "") == ("", "")
-
-
-def test_items_from_csv_rows_splits_combined_expiry_batch_column():
-    rows = [{"sku": "SKU1", "position_code": "H011A", "expiry": "2027-03/4471"}]
-
-    items, _skipped = items_from_csv_rows(rows)
-
-    assert items[0].expiry == "2027-03"
-    assert items[0].batch == "4471"
-
-
-def test_items_from_csv_rows_splits_combined_column_mapped_to_batch_field():
-    rows = [{"sku": "SKU1", "position_code": "H011A", "batch": "2027-03/4471"}]
-
-    items, _skipped = items_from_csv_rows(rows)
-
-    assert items[0].expiry == "2027-03"
-    assert items[0].batch == "4471"
 
 
 def test_items_from_csv_rows_leaves_separate_columns_untouched():
@@ -148,3 +123,28 @@ def test_items_from_csv_rows_client_defaults_empty():
     items, _skipped = items_from_csv_rows(rows)
 
     assert items[0].client == ""
+
+
+def test_expiry_with_slashes_is_not_split_into_a_fake_batch():
+    rows = [{"sku": "SKU1", "position_code": "H011A", "expiry": "2026/08/02", "batch": ""}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].expiry == "2026/08/02"
+    assert items[0].batch == ""
+
+
+def test_items_from_csv_rows_uppercases_position_code_column():
+    rows = [{"sku": "SKU1", "position_code": "h011a"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].position_code == "H011A"
+
+
+def test_items_from_csv_rows_zero_pads_the_position_code_column():
+    rows = [{"sku": "SKU1", "position_code": "h11a"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].position_code == "H011A"

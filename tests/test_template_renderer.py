@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import stat
 import sys
@@ -8,6 +9,7 @@ import pytest
 import zxingcpp
 from PIL import Image
 
+from app.core.config import LOGGER_NAME
 from app.core.template_renderer import (
     DEFAULT_DPI,
     FONT_CSS,
@@ -17,6 +19,22 @@ from app.core.template_renderer import (
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "templates" / "sample"
+
+
+@pytest.fixture
+def log_records():
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.addHandler(handler)
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
 
 
 def test_list_presets_seeds_examples_into_empty_shared_folder(tmp_path):
@@ -88,6 +106,13 @@ def test_list_presets_seeds_a_readme_explaining_the_overwrite(tmp_path):
     assert "REWRITTEN" in readme
 
 
+def test_seeding_never_leaves_a_tmp_file_behind(tmp_path):
+    list_presets(tmp_path, "positions")
+
+    leftover_tmp_files = list((tmp_path / "templates" / "positions" / "default").glob("*.tmp"))
+    assert leftover_tmp_files == []
+
+
 # One condition, not two decorators: both are evaluated at import time, so a
 # separate skipif still calls os.geteuid() on Windows, where it does not exist.
 @pytest.mark.skipif(
@@ -112,7 +137,35 @@ def test_list_presets_survives_a_read_only_shared_folder(tmp_path):
     assert [p.name for p in presets] == ["Default 150x100mm"]
 
 
-def test_list_presets_skips_a_preset_with_malformed_meta(tmp_path):
+def test_seeding_only_happens_once_per_process_per_mode_dir(tmp_path):
+    list_presets(tmp_path, "positions")
+    template = tmp_path / "templates" / "positions" / "default" / "template.html"
+    template.write_text("<div>CHANGED_AFTER_FIRST_SEED</div>", encoding="utf-8")
+
+    list_presets(tmp_path, "positions")
+
+    # A second call must not reseed - the manual change must survive.
+    assert "CHANGED_AFTER_FIRST_SEED" in template.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, and root ignores them",
+)
+def test_list_presets_survives_an_unreadable_mode_dir(tmp_path, log_records):
+    list_presets(tmp_path, "positions")  # seed once, successfully
+    mode_dir = tmp_path / "templates" / "positions"
+    mode_dir.chmod(0)  # no read/execute - iterdir() will raise
+    try:
+        presets = list_presets(tmp_path, "positions")
+    finally:
+        mode_dir.chmod(stat.S_IRWXU)
+
+    assert presets == []
+    assert any("Could not list templates" in r.getMessage() for r in log_records)
+
+
+def test_list_presets_skips_a_preset_with_malformed_meta(tmp_path, log_records):
     # meta.json is hand-edited in a folder several machines share - one typo
     # must cost that preset, not everyone else's app launch.
     broken = tmp_path / "templates" / "positions" / "broken"
@@ -122,6 +175,7 @@ def test_list_presets_skips_a_preset_with_malformed_meta(tmp_path):
     presets = list_presets(tmp_path, "positions")
 
     assert [p.name for p in presets] == ["Default 150x100mm"]
+    assert any("Skipping invalid preset" in r.getMessage() for r in log_records)
 
 
 def test_list_presets_skips_a_preset_missing_meta_keys(tmp_path):
@@ -287,3 +341,17 @@ def test_shipped_default_actually_applies_the_bundled_font(tmp_path, monkeypatch
     without_font = render_records(preset, [record])[0]
 
     assert with_font.tobytes() != without_font.tobytes()
+
+
+def test_render_records_raises_when_meta_size_does_not_match_rendered_page():
+    mismatched_preset = TemplatePreset(
+        name="Mismatched",
+        mode="positions",
+        width_mm=100,  # fixture's style.css @page is 40mm x 30mm (4:3);
+        height_mm=100,  # this claims 1:1 - well past the ~1% tolerance.
+        template_path=FIXTURE_DIR / "template.html",
+        stylesheet_path=FIXTURE_DIR / "style.css",
+    )
+
+    with pytest.raises(ValueError, match="Mismatched"):
+        render_records(mismatched_preset, [{"code": "A1", "label": "A1"}])

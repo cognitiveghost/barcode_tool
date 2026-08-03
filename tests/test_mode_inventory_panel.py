@@ -5,10 +5,11 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.core import print_service
+from app.core.print_batch import BatchResult, PrintCancelled
 from app.ui.mode_inventory_panel import (
     TABLE_COLUMNS,
     InventoryModePanel,
@@ -30,9 +31,19 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # ~/.barcode_tool directory (and seeding example templates into it)
     # during tests.
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.default_settings_path",
+        "app.core.config.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
+    # refresh_from_settings() (called from __init__) reads the remembered
+    # last-used template via qsettings() - QSettings("barcode_tool",
+    # "barcode_tool") on the real machine, unless redirected. Left unpatched,
+    # once that real store exists on disk every later-constructed panel in
+    # the same test process would restore from it, the same class of
+    # cross-test leak Task 18 found and fixed for csv_import_dialog.py. Use
+    # this file's own tmp_path-scoped ini so a "remembered template" test
+    # here can never leak into test_mode_positions_panel.py's store.
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.qsettings", lambda: store)
 
 
 def _write_preset(
@@ -87,7 +98,36 @@ def test_load_items_reports_skipped_rows():
 
     panel.load_items(rows)
 
-    assert panel.result_label.text() == "1 item imported (1 row skipped)"
+    assert "1 item imported" in panel.result_label.text()
+    assert "1 row skipped" in panel.result_label.text()
+    assert "show details" in panel.result_label.text()
+
+
+def test_skipped_rows_link_opens_detail_dialog(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    rows = [
+        {"sku": "SKU1", "position_code": "H011A"},
+        {"sku": "", "position_code": "H012A"},
+    ]
+    panel.load_items(rows)
+
+    opened = []
+
+    class FakeDialog:
+        def __init__(self, skipped_rows, raw_rows, parent=None):
+            opened.append((skipped_rows, raw_rows))
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.SkippedRowsDialog", FakeDialog)
+
+    panel.result_label.linkActivated.emit("#")
+
+    assert len(opened) == 1
+    assert len(opened[0][0]) == 1
+    assert opened[0][1] == rows
 
 
 def test_load_items_raises_when_no_valid_rows():
@@ -145,7 +185,7 @@ def test_import_csv_button_opens_dialog_and_loads_items(monkeypatch):
     fake_rows = [{"sku": "SKU1", "position_code": "H011A"}]
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -166,7 +206,7 @@ def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
     panel = InventoryModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -187,7 +227,7 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     panel = InventoryModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -223,6 +263,27 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
     assert preset_names == ["80x80mm", "Default 150x100mm"]
 
 
+def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
+    _app()
+    monkeypatch.setattr("app.ui.mode_inventory_panel.list_presets", lambda *a, **k: [])
+
+    panel = InventoryModePanel(SETTINGS)  # constructed standalone, no QMainWindow
+
+    assert panel.preset_combo.count() == 0
+
+
+def test_refresh_shows_status_bar_warning_when_no_presets_found(monkeypatch, tmp_path):
+    _app()
+    monkeypatch.setattr("app.ui.mode_inventory_panel.list_presets", lambda *a, **k: [])
+    window = QMainWindow()
+    panel = InventoryModePanel(SETTINGS)
+    window.setCentralWidget(panel)
+
+    panel.refresh_from_settings({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    assert window.statusBar().currentMessage() != ""
+
+
 def test_print_checked_items_writes_pdf_and_log(tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
@@ -244,23 +305,11 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
     panel.print_checked_items(output_pdf_path=pdf_path)
 
     assert pdf_path.exists()
-    log_path = tmp_path / "audit_log.csv"
-    rows = list(csv.reader(log_path.read_text(encoding="utf-8").splitlines()))
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 1
+    rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 2  # header + one entry
-    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2"]
-
-
-def test_print_checked_items_writes_a_timestamped_debug_pdf_next_to_the_audit_log(tmp_path):
-    _app()
-    settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
-    panel = InventoryModePanel(settings)
-    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
-
-    panel.print_checked_items(output_pdf_path=tmp_path / "explicit.pdf")
-
-    debug_pdfs = list(tmp_path.glob("inventory_label_preview_*.pdf"))
-    assert len(debug_pdfs) == 1
-    assert debug_pdfs[0].stat().st_size > 0
+    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2", "Default 150x100mm", "(system default)"]
 
 
 def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
@@ -272,22 +321,18 @@ def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
 
     panel.print_checked_items(output_pdf_path=tmp_path / "explicit.pdf")
 
-    debug_pdfs = list(shared_folder.glob("inventory_label_preview_*.pdf"))
-    assert len(debug_pdfs) == 1
-    assert debug_pdfs[0].stat().st_size > 0
-    assert (shared_folder / "audit_log.csv").exists()
+    assert len(list(shared_folder.glob("printed_pdfs/*/*.pdf"))) == 1
+    assert len(list(shared_folder.glob("audit/*.csv"))) == 1
 
 
-def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_path(
-    monkeypatch, tmp_path
-):
+def test_print_checked_items_archives_a_pdf_without_an_explicit_output_path(monkeypatch, tmp_path):
     _app()
-    # Without an output path the first send_to_printer falls through to driver
-    # mode and QPrinter binds the *system default printer*. On a Linux runner
-    # there is none and Qt no-ops; on Windows it is "Microsoft Print to PDF",
-    # which opens a modal Save As dialog and blocks the whole run - this test
-    # is what has been hanging the Windows CI job until its 6h timeout. Only
-    # the driver leg is stubbed, so the debug PDF below is still written for real.
+    # Without an output path the physical print falls through to driver mode
+    # and QPrinter binds the *system default printer*. On a Linux runner
+    # there is none and Qt no-ops; on Windows it is "Microsoft Print to
+    # PDF", which opens a modal Save As dialog and blocks the whole run.
+    # Only the driver leg is stubbed - the archive render (which always has
+    # its own explicit output_pdf_path) still exercises real Qt rendering.
     real_print_labels = print_service.print_labels
     monkeypatch.setattr(
         "app.core.print_service.print_labels",
@@ -303,8 +348,8 @@ def test_print_checked_items_still_writes_debug_pdf_without_an_explicit_output_p
 
     panel.print_checked_items()
 
-    debug_pdfs = list(tmp_path.glob("inventory_label_preview_*.pdf"))
-    assert len(debug_pdfs) == 1
+    archived = list(tmp_path.glob("printed_pdfs/*/*.pdf"))
+    assert len(archived) == 1
 
 
 def test_print_checked_items_skips_unchecked_rows(tmp_path):
@@ -321,9 +366,9 @@ def test_print_checked_items_skips_unchecked_rows(tmp_path):
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
-    log_path = tmp_path / "audit_log.csv"
-    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
-    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1"]
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
+    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1", "Default 150x100mm", "(system default)"]
 
 
 def test_print_checked_items_raises_when_nothing_checked(tmp_path):
@@ -361,6 +406,14 @@ def test_print_button_click_without_warehouse_shows_warning(monkeypatch):
 
 
 def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp_path):
+    # Not a brief scenario: the button click now opens PrintPreviewDialog
+    # rather than printing directly, so this OSError-propagation behavior is
+    # exercised at the print_checked_items level (same pattern as
+    # test_print_current_labels_skips_archive_when_send_to_printer_raises in
+    # test_mode_positions_panel.py) - the button-click-shows-warning half of
+    # this scenario is now covered generically by
+    # test_confirm_failure_shows_warning_and_does_not_close in
+    # test_print_preview_dialog.py.
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = InventoryModePanel(settings)
@@ -369,22 +422,22 @@ def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp
     def _boom(*a, **k):
         raise OSError("printer offline")
 
-    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", _boom)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _boom)
     log_calls = []
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.append_print_log",
+        "app.core.print_batch.append_print_log",
         lambda *a, **k: log_calls.append(True),
     )
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    panel.print_button.click()
+    with pytest.raises(OSError):
+        panel.print_checked_items()
 
-    assert warnings[0][1] == "Print failed"
     assert log_calls == []
 
 
-def test_audit_log_failure_reports_distinct_warning_after_successful_print(monkeypatch, tmp_path):
+def test_audit_log_failure_reports_a_warning_after_successful_print(monkeypatch, tmp_path):
+    # See comment on test_print_failure_reports_print_failed_and_skips_audit_log
+    # above - same reasoning, exercised at the print_checked_items level now.
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = InventoryModePanel(settings)
@@ -396,17 +449,16 @@ def test_audit_log_failure_reports_distinct_warning_after_successful_print(monke
         raise OSError("share unavailable")
 
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.send_to_printer",
+        "app.core.print_batch.send_to_printer",
         lambda *a, **k: print_calls.append(True),
     )
-    monkeypatch.setattr("app.ui.mode_inventory_panel.append_print_log", _log_boom)
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+    monkeypatch.setattr("app.core.print_batch.append_print_log", _log_boom)
 
-    panel.print_button.click()
+    result = panel.print_checked_items()
 
-    assert print_calls == [True, True]
-    assert warnings[0][1] == "Audit log failed"
+    assert print_calls == [True, True]  # physical print + archive render
+    assert len(result.warnings) == 1
+    assert "audit log" in result.warnings[0].lower()
 
 
 def test_describe_skus_dedupes_repeated_sku():
@@ -418,26 +470,125 @@ def test_describe_skus_caps_long_lists():
     assert _describe_skus(skus) == "SKU0, SKU1, SKU2, SKU3, SKU4 +2 more"
 
 
-def test_print_button_click_invokes_print_checked_items(monkeypatch):
+def test_print_button_click_opens_preview_dialog_wired_to_print_checked_items(monkeypatch, tmp_path):
     _app()
-    panel = InventoryModePanel(SETTINGS)
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
     calls = []
-    monkeypatch.setattr(panel, "print_checked_items", lambda: calls.append(True))
+
+    class FakeDialog:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.PrintPreviewDialog", FakeDialog)
 
     panel.print_button.click()
 
-    assert calls == [True]
+    assert len(calls) == 1
+    assert calls[0]["count"] == 1
+    assert calls[0]["on_confirm"] == panel.print_checked_items
+
+
+def test_print_button_shows_warning_when_preview_dialog_construction_fails(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    def _boom(*a, **k):
+        raise ValueError("boom")
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.PrintPreviewDialog", _boom)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()  # must not raise
+
+    assert len(warnings) == 1
+    assert warnings[0][1] == "Print failed"
 
 
 def test_print_button_click_without_items_shows_warning(monkeypatch):
+    # print_button now starts disabled (table is empty), so a real .click()
+    # is a Qt no-op and would not reach _on_print_clicked at all. Call the
+    # handler directly - it's the same path Ctrl+P dispatches to, and the
+    # "nothing to print" guard it exercises must still be there for that
+    # shortcut, which bypasses QPushButton.isEnabled() entirely.
     _app()
     panel = InventoryModePanel(SETTINGS)
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    panel.print_button.click()
+    panel._on_print_clicked()
 
     assert len(warnings) == 1
+
+
+def test_checked_items_survive_sorting():
+    # checked_items() used to map table row -> self.items[row]; sorting the view
+    # would have printed labels for whichever items happened to land on the
+    # checked rows.
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "ZZZ", "position_code": "H011A"},
+        {"sku": "AAA", "position_code": "H012A"},
+    ])
+    panel._set_all_checked(False)
+    panel.items_table.item(0, 0).setCheckState(Qt.CheckState.Checked)  # ZZZ
+
+    panel.items_table.sortItems(1, Qt.SortOrder.AscendingOrder)
+
+    assert [item.sku for item in panel.checked_items()] == ["ZZZ"]
+
+
+def test_filter_hides_non_matching_rows():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "WIDGET1", "position_code": "H011A"},
+        {"sku": "GADGET2", "position_code": "H012A"},
+    ])
+
+    panel.filter_edit.setText("widget")
+
+    assert not panel.items_table.isRowHidden(0)
+    assert panel.items_table.isRowHidden(1)
+
+
+def test_hidden_rows_are_still_printed_if_checked():
+    # Filtering is a view concern. Silently dropping checked-but-filtered items
+    # would be the same class of bug as the sorting one.
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "WIDGET1", "position_code": "H011A"},
+        {"sku": "GADGET2", "position_code": "H012A"},
+    ])
+
+    panel.filter_edit.setText("widget")
+
+    assert len(panel.checked_items()) == 2
+
+
+def test_selection_count_updates_live():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([
+        {"sku": "SKU1", "position_code": "H011A"},
+        {"sku": "SKU2", "position_code": "H012A"},
+    ])
+
+    panel._set_all_checked(False)
+
+    assert panel.selection_label.text() == "0 of 2 selected"
 
 
 def test_client_column_populated_from_item():
@@ -462,7 +613,7 @@ def test_print_checked_items_passes_generated_date_as_yyyy_mm_dd(monkeypatch, tm
         return [Image.new("RGB", (10, 10)) for _ in records]
 
     monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
@@ -494,7 +645,7 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
         return [Image.new("RGB", (10, 10)) for _ in records]
 
     monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.send_to_printer", lambda *a, **k: None)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
 
@@ -508,3 +659,108 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
         record["position_code"],
     ) == ("SKU1", "Widget", "Acme Corp", "4471", "2027-03", "H-011-A")
     assert record["position_data"] == "C001H011A"  # warehouse prefix + raw position_code
+
+
+def test_print_preview_render_page_builds_the_same_record_shape(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "name": "Widget", "position_code": "H011A"}])
+
+    render_calls = []
+
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(records)
+        return [Image.new("RGB", (10, 10)) for _ in records]
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
+
+    captured = {}
+
+    class FakeDialog:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.PrintPreviewDialog", FakeDialog)
+
+    panel.print_button.click()
+    captured["render_page"](0)
+
+    record = render_calls[0][0]
+    assert record["sku"] == "SKU1"
+    assert record["name"] == "Widget"
+    assert record["position_data"] == "C001H011A"
+
+
+def test_print_button_disabled_until_a_row_is_checked():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+
+    assert not panel.print_button.isEnabled()
+
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    assert panel.print_button.isEnabled()
+
+    panel._set_all_checked(False)
+
+    assert not panel.print_button.isEnabled()
+
+
+def test_print_checked_items_large_batch_renders_in_pinned_chunks(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(250)])
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.render_records",
+        lambda preset, records: render_calls.append(len(records)) or [f"img{i}" for i in range(len(records))],
+    )
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QMessageBox.question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.print_batch",
+        lambda *a, **k: BatchResult(count=250, archive_path=None),
+    )
+
+    panel.print_checked_items()
+
+    assert render_calls == [50, 50, 50, 50, 50]
+
+
+def test_declining_the_large_batch_confirmation_raises_print_cancelled(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(250)])
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QMessageBox.question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
+    )
+
+    with pytest.raises(PrintCancelled):
+        panel.print_checked_items()
+
+
+def test_small_batch_does_not_go_through_the_progress_path(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QMessageBox.question",
+        staticmethod(lambda *a, **k: calls.append(True)),
+    )
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.print_batch",
+        lambda *a, **k: BatchResult(count=1, archive_path=None),
+    )
+
+    panel.print_checked_items()
+
+    assert calls == []  # confirmation dialog never shown for a small batch

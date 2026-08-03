@@ -2,9 +2,12 @@ import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from barcode.errors import BarcodeError
+from PIL import Image
+from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QProgressDialog
 
-from app.ui.mode_positions_panel import ArchiveError, PositionsModePanel
+from app.ui.mode_positions_panel import GenerationCancelled, PositionsModePanel
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
@@ -21,9 +24,17 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # ~/.barcode_tool directory (and seeding example templates into it)
     # during tests.
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.default_settings_path",
+        "app.core.config.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
+    # refresh_from_settings() (called from __init__) reads the remembered
+    # last-used template via qsettings() - QSettings("barcode_tool",
+    # "barcode_tool") on the real machine, unless redirected. Left unpatched,
+    # once that real store exists on disk every later-constructed panel in
+    # the same test process would restore from it, the same class of
+    # cross-test leak Task 18 found and fixed for csv_import_dialog.py.
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
 
 
 def _write_preset(
@@ -82,7 +93,7 @@ def test_corridor_field_accepts_single_letter():
     panel = PositionsModePanel(SETTINGS)
 
     panel.corridor_edit.insert("H")
-    panel.corridor_edit.insert("X")  # second letter must be rejected (maxLength=1)
+    panel.corridor_edit.insert("X")  # second letter must be rejected (input mask has one letter slot)
 
     assert panel.corridor_edit.text() == "H"
 
@@ -120,10 +131,11 @@ def test_print_current_labels_writes_pdf_and_log(tmp_path):
     panel.print_current_labels(output_pdf_path=pdf_path)
 
     assert pdf_path.exists()
-    log_path = tmp_path / "audit_log.csv"
-    log_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 1
+    log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
     assert len(log_lines) == 2  # header + one entry
-    assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030"]
+    assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030", "Default 150x100mm", "(system default)"]
 
 
 def test_generate_without_preset_raises_value_error(monkeypatch, tmp_path):
@@ -139,24 +151,68 @@ def test_generate_without_preset_raises_value_error(monkeypatch, tmp_path):
         panel.generate()
 
 
-def test_print_button_click_invokes_print_current_labels(monkeypatch):
+def test_print_button_click_opens_preview_dialog_wired_to_print_current_labels(monkeypatch, tmp_path):
     _app()
-    panel = PositionsModePanel(SETTINGS)
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.generate()
+
     calls = []
-    monkeypatch.setattr(panel, "print_current_labels", lambda: calls.append(True))
+
+    class FakeDialog:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.PrintPreviewDialog", FakeDialog)
 
     panel.print_button.click()
 
-    assert calls == [True]
+    assert len(calls) == 1
+    assert calls[0]["count"] == 1
+    assert calls[0]["on_confirm"] == panel.print_current_labels
+    assert calls[0]["render_page"](0) is panel.generated_labels[0]
+
+
+def test_print_button_shows_warning_when_preview_dialog_construction_fails(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.generate()
+
+    def _boom(*a, **k):
+        raise ValueError("boom")
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.PrintPreviewDialog", _boom)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()  # must not raise
+
+    assert len(warnings) == 1
+    assert warnings[0][1] == "Print failed"
 
 
 def test_print_button_click_without_generated_labels_shows_warning(monkeypatch):
+    # print_button now starts disabled (nothing generated yet), so a real
+    # .click() is a Qt no-op and would not reach _on_print_clicked at all.
+    # Call the handler directly - it's the same path Ctrl+P dispatches to,
+    # and the "nothing to print" guard it exercises must still be there for
+    # that shortcut, which bypasses QPushButton.isEnabled() entirely.
     _app()
     panel = PositionsModePanel(SETTINGS)
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    panel.print_button.click()
+    panel._on_print_clicked()
 
     assert len(warnings) == 1
 
@@ -172,7 +228,7 @@ def test_print_current_labels_falls_back_to_settings_dir_when_shared_folder_empt
 
     panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
 
-    assert (tmp_path / "audit_log.csv").exists()
+    assert len(list((tmp_path / "audit").glob("*.csv"))) == 1
 
 
 def test_print_uses_preset_from_generate_time_not_live_combo(monkeypatch, tmp_path):
@@ -191,7 +247,7 @@ def test_print_uses_preset_from_generate_time_not_live_combo(monkeypatch, tmp_pa
 
     calls = []
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.send_to_printer",
+        "app.core.print_batch.send_to_printer",
         lambda *a, **k: calls.append(k),
     )
     panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
@@ -226,7 +282,36 @@ def test_generate_from_rows_reports_skipped_rows():
     results = panel.generate_from_rows(rows)
 
     assert [code for code, _ in results] == ["H029", "H030"]
-    assert panel.result_label.text() == "2 labels generated (1 row skipped)"
+    assert "2 labels generated" in panel.result_label.text()
+    assert "1 row skipped" in panel.result_label.text()
+    assert "show details" in panel.result_label.text()
+
+
+def test_skipped_rows_link_opens_detail_dialog(monkeypatch):
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    rows = [
+        {"corridor": "H", "number": "029", "height": ""},
+        {"corridor": "H", "number": "not-a-number", "height": ""},
+    ]
+    panel.generate_from_rows(rows)
+
+    opened = []
+
+    class FakeDialog:
+        def __init__(self, skipped_rows, raw_rows, parent=None):
+            opened.append((skipped_rows, raw_rows))
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.SkippedRowsDialog", FakeDialog)
+
+    panel.result_label.linkActivated.emit("#")
+
+    assert len(opened) == 1
+    assert len(opened[0][0]) == 1
+    assert opened[0][1] == rows
 
 
 def test_generate_from_rows_uses_position_code_field_directly():
@@ -254,7 +339,7 @@ def test_import_csv_button_opens_dialog_and_generates_from_rows(monkeypatch):
     fake_rows = [{"corridor": "H", "number": "029", "height": ""}]
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -275,7 +360,7 @@ def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
     panel = PositionsModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -296,7 +381,7 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     panel = PositionsModePanel(SETTINGS)
 
     class FakeDialog:
-        def __init__(self, fields, parent=None):
+        def __init__(self, fields, parent=None, **kwargs):
             pass
 
         def exec(self):
@@ -310,6 +395,35 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
     panel.import_csv_button.click()
+
+    assert len(warnings) == 1
+
+
+def test_import_csv_barcode_error_shows_warning_not_a_crash(monkeypatch):
+    # generate_from_rows can raise BarcodeError (e.g. a warehouse prefix the
+    # symbology can't encode) - every sibling handler in this file already
+    # catches it, this slot was the odd one out.
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    class FakeDialog:
+        def __init__(self, fields, parent=None, **kwargs):
+            pass
+
+        def exec(self):
+            return True
+
+        def get_mapped_rows(self):
+            return []
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.CsvImportDialog", FakeDialog)
+    monkeypatch.setattr(
+        panel, "generate_from_rows", lambda rows: (_ for _ in ()).throw(BarcodeError("bad payload"))
+    )
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel._on_import_csv_clicked()  # must not raise
 
     assert len(warnings) == 1
 
@@ -336,6 +450,27 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
     assert preset_names == ["80x80mm", "Default 150x100mm"]
 
 
+def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
+    _app()
+    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+
+    panel = PositionsModePanel(SETTINGS)  # constructed standalone, no QMainWindow
+
+    assert panel.preset_combo.count() == 0
+
+
+def test_refresh_shows_status_bar_warning_when_no_presets_found(monkeypatch, tmp_path):
+    _app()
+    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+    window = QMainWindow()
+    panel = PositionsModePanel(SETTINGS)
+    window.setCentralWidget(panel)
+
+    panel.refresh_from_settings({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    assert window.statusBar().currentMessage() != ""
+
+
 def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
@@ -347,14 +482,14 @@ def test_print_current_labels_writes_archive_pdf_to_shared_folder(tmp_path):
 
     panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
 
-    archived = list((tmp_path / "printed_pdfs").glob("*.pdf"))
+    archived = list((tmp_path / "printed_pdfs").glob("*/*.pdf"))
     assert len(archived) == 1
     assert archived[0].stat().st_size > 0
     assert "C001" in archived[0].name
     assert "H029..H030" in archived[0].name
 
 
-def test_print_current_labels_raises_archive_error_after_successful_print(tmp_path):
+def test_print_current_labels_reports_archive_warning_after_successful_print(tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}
     panel = PositionsModePanel(settings)
@@ -364,11 +499,15 @@ def test_print_current_labels_raises_archive_error_after_successful_print(tmp_pa
     panel.generate()
     (tmp_path / "printed_pdfs").write_text("occupied by a file, not a directory")
 
-    with pytest.raises(ArchiveError):
-        panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
+    result = panel.print_current_labels(output_pdf_path=tmp_path / "out.pdf")
 
     assert (tmp_path / "out.pdf").exists()
-    log_lines = (tmp_path / "audit_log.csv").read_text(encoding="utf-8").strip().splitlines()
+    assert result.archive_path is None
+    assert len(result.warnings) == 1
+    assert "archive" in result.warnings[0].lower()
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 1
+    log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
     assert len(log_lines) == 2  # header + one entry - logged despite the archive failure
 
 
@@ -383,9 +522,349 @@ def test_print_current_labels_skips_archive_when_send_to_printer_raises(monkeypa
     def _boom(*a, **k):
         raise OSError("printer offline")
 
-    monkeypatch.setattr("app.ui.mode_positions_panel.send_to_printer", _boom)
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _boom)
 
     with pytest.raises(OSError):
         panel.print_current_labels()
 
     assert not (tmp_path / "printed_pdfs").exists()
+
+
+def test_generate_without_warehouse_raises():
+    _app()
+    panel = PositionsModePanel({**SETTINGS, "warehouses": []})
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    with pytest.raises(ValueError, match="warehouse"):
+        panel.generate()
+
+
+def test_generate_from_rows_without_warehouse_raises():
+    _app()
+    panel = PositionsModePanel({**SETTINGS, "warehouses": []})
+
+    with pytest.raises(ValueError, match="warehouse"):
+        panel.generate_from_rows([{"corridor": "H", "number": "029"}])
+
+
+def test_letter_fields_force_uppercase():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.setText("h")
+    panel.height_from_edit.setText("a")
+    panel.height_to_edit.setText("c")
+
+    assert panel.corridor_edit.text() == "H"
+    assert panel.height_from_edit.text() == "A"
+    assert panel.height_to_edit.text() == "C"
+
+
+def test_empty_letter_fields_are_still_empty_strings():
+    # An input mask can leave placeholder characters behind; the panel's
+    # `text() or None` logic depends on empty staying "".
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert panel.corridor_edit.text() == ""
+    assert panel.height_from_edit.text() == ""
+
+
+def test_height_applies_without_a_checkbox():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.height_from_edit.setText("A")
+    panel.height_to_edit.setText("B")
+
+    results = panel.generate()
+
+    assert [code for code, _ in results] == ["H029A", "H029B"]
+
+
+def test_no_height_letter_means_no_height_suffix():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    results = panel.generate()
+
+    assert [code for code, _ in results] == ["H029"]
+
+
+def test_height_checkbox_is_gone():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert not hasattr(panel, "height_enabled_check")
+
+
+def test_count_label_updates_as_fields_change():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("031")
+
+    assert panel.count_label.text() == "-> 3 labels"
+
+
+def test_count_label_uses_singular_for_one_label():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    assert panel.count_label.text() == "-> 1 label"
+
+
+def test_count_label_is_empty_for_incomplete_input():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.number_from_edit.setText("029")  # no corridor yet
+
+    assert panel.count_label.text() == ""
+
+
+def test_small_batch_does_not_prompt_for_confirmation(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+
+    questions = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: questions.append(a)))
+
+    results = panel.generate()
+
+    assert questions == []
+    assert len(results) == 2
+
+
+def test_large_batch_prompts_and_renders_in_chunks(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")  # 250 codes, > LARGE_BATCH_THRESHOLD (200)
+
+    render_calls = []
+
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(len(records))
+        return [Image.new("RGB", (10, 10)) for _ in records]
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", _fake_render)
+    questions = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (questions.append(a), QMessageBox.StandardButton.Yes)[1]),
+    )
+
+    results = panel.generate()
+
+    assert len(questions) == 1
+    assert len(results) == 250
+    assert render_calls == [50, 50, 50, 50, 50]
+
+
+def test_large_batch_chunk_sizes_for_a_non_round_batch(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("216")  # 217 codes: 4 full chunks of 50 + a 17-record remainder
+
+    render_calls = []
+
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(len(records))
+        return [Image.new("RGB", (10, 10)) for _ in records]
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", _fake_render)
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+
+    results = panel.generate()
+
+    assert len(results) == 217
+    assert render_calls == [50, 50, 50, 50, 17]
+
+
+def test_confirmation_message_shows_the_count_and_a_time_estimate(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: [Image.new("RGB", (10, 10)) for _ in records],
+    )
+    questions = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (questions.append(a), QMessageBox.StandardButton.Yes)[1]),
+    )
+
+    panel.generate()
+
+    assert "250 labels" in questions[0][2]
+    assert "minute" in questions[0][2]
+
+
+def test_declining_the_large_batch_confirmation_raises_generation_cancelled(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: (render_calls.append(records), [])[1],
+    )
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+
+    with pytest.raises(GenerationCancelled):
+        panel.generate()
+
+    assert render_calls == []
+
+
+def test_on_generate_clicked_is_silent_when_the_large_batch_is_declined(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", lambda preset, records, **k: [])
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel._on_generate_clicked()  # must not raise, must not warn
+
+    assert warnings == []
+
+
+def test_progress_dialog_cancel_stops_rendering_after_the_current_chunk(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: (
+            render_calls.append(records), [Image.new("RGB", (10, 10)) for _ in records]
+        )[1],
+    )
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+
+    call_count = [0]
+
+    def _fake_was_canceled(self):
+        call_count[0] += 1
+        return call_count[0] > 1  # cancel is reported starting on the second check
+
+    monkeypatch.setattr(QProgressDialog, "wasCanceled", _fake_was_canceled)
+
+    with pytest.raises(GenerationCancelled):
+        panel.generate()
+
+    assert len(render_calls) == 1  # only the first chunk rendered before cancel
+
+
+def test_generate_from_rows_also_uses_the_large_batch_path(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    rows = [{"corridor": "H", "number": f"{i:03d}", "height": ""} for i in range(250)]
+
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: [Image.new("RGB", (10, 10)) for _ in records],
+    )
+    questions = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (questions.append(a), QMessageBox.StandardButton.Yes)[1]),
+    )
+
+    results = panel.generate_from_rows(rows)
+
+    assert len(questions) == 1
+    assert len(results) == 250
+
+
+def test_generate_button_disabled_when_range_is_invalid():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert not panel.generate_button.isEnabled()  # empty corridor/number at construction
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    assert panel.generate_button.isEnabled()
+
+
+def test_print_button_disabled_until_something_is_generated():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert not panel.print_button.isEnabled()
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.generate()
+
+    assert panel.print_button.isEnabled()
+
+
+def test_last_used_template_is_restored_on_next_construction(tmp_path, monkeypatch):
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
+    _app()
+    shared = tmp_path / "shared"
+    _write_preset(shared, "positions", "a", "Preset A", 50, 30)
+    _write_preset(shared, "positions", "b", "Preset B", 50, 30)
+    settings = {**SETTINGS, "shared_folder": str(shared)}
+
+    first = PositionsModePanel(settings)
+    first.preset_combo.setCurrentIndex(first.preset_combo.findText("Preset B"))
+    first._on_preset_selected(first.preset_combo.currentIndex())
+
+    second = PositionsModePanel(settings)
+
+    assert second.preset_combo.currentText() == "Preset B"

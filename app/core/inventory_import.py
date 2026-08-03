@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.core.position_generator import format_position_code, parse_position_code
+from app.core.position_generator import (
+    SkippedRow,
+    format_position_code,
+    parse_position_code,
+)
 
 INVENTORY_CSV_FIELDS = [
     ("sku", "SKU (required)"),
@@ -27,19 +31,9 @@ class InventoryItem:
     client: str = ""
 
 
-def _split_combined_expiry_batch(expiry: str, batch: str) -> tuple[str, str]:
-    if not batch and "/" in expiry:
-        parts = expiry.split("/", 1)
-        return parts[0].strip(), parts[1].strip()
-    if not expiry and "/" in batch:
-        parts = batch.split("/", 1)
-        return parts[0].strip(), parts[1].strip()
-    return expiry, batch
-
-
-def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[int]]:
+def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[SkippedRow]]:
     items: list[InventoryItem] = []
-    skipped_rows: list[int] = []
+    skipped_rows: list[SkippedRow] = []
     for row_number, row in enumerate(rows, start=1):
         try:
             sku = (row.get("sku") or "").strip()
@@ -53,12 +47,11 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                     (row.get("number") or "").strip(),
                     (row.get("height") or "").strip(),
                 )
-            parse_position_code(position_code)
+            corridor, number, height = parse_position_code(position_code)
+            position_code = format_position_code(corridor, number, height)
 
-            expiry, batch = _split_combined_expiry_batch(
-                (row.get("expiry") or "").strip(),
-                (row.get("batch") or "").strip(),
-            )
+            expiry = (row.get("expiry") or "").strip()
+            batch = (row.get("batch") or "").strip()
 
             items.append(
                 InventoryItem(
@@ -70,6 +63,6 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                     client=(row.get("client") or "").strip(),
                 )
             )
-        except ValueError:
-            skipped_rows.append(row_number)
+        except ValueError as error:
+            skipped_rows.append(SkippedRow(row_number, str(error)))
     return items, skipped_rows

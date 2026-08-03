@@ -103,11 +103,11 @@ def test_codes_from_csv_rows_builds_codes_from_components():
 
 
 def test_codes_from_csv_rows_prefers_position_code_when_present():
-    rows = [{"position_code": "C001H099Z", "corridor": "X", "number": "1", "height": ""}]
+    rows = [{"position_code": "H099Z", "corridor": "X", "number": "1", "height": ""}]
 
     codes, _skipped = codes_from_csv_rows(rows)
 
-    assert codes == ["C001H099Z"]
+    assert codes == ["H099Z"]
 
 
 def test_codes_from_csv_rows_skips_invalid_rows_and_continues():
@@ -120,7 +120,20 @@ def test_codes_from_csv_rows_skips_invalid_rows_and_continues():
     codes, skipped = codes_from_csv_rows(rows)
 
     assert codes == ["H029", "H030"]
-    assert skipped == [2]
+    assert [s.row_number for s in skipped] == [2]
+
+
+def test_codes_from_csv_rows_captures_skip_reason():
+    rows = [
+        {"corridor": "H", "number": "029", "height": ""},
+        {"corridor": "H", "number": "not-a-number", "height": ""},
+    ]
+
+    _codes, skipped = codes_from_csv_rows(rows)
+
+    assert len(skipped) == 1
+    assert skipped[0].row_number == 2
+    assert "digit" in skipped[0].reason.lower()
 
 
 def test_codes_from_csv_rows_handles_missing_keys():
@@ -184,3 +197,101 @@ def test_display_position_code_pads_the_number():
 
 def test_display_position_code_passes_unparseable_csv_codes_through():
     assert display_position_code("free-form") == "FREE-FORM"
+
+
+def test_lowercase_corridor_and_height_are_uppercased():
+    assert format_position_code("h", "29", "a") == "H029A"
+
+
+def test_generate_uppercases_lowercase_input():
+    assert generate_position_codes("h", "1", "1", "a", "b") == ["H001A", "H001B"]
+
+
+def test_parse_position_code_uppercases():
+    assert parse_position_code("h001a") == ("H", "001", "A")
+
+
+def test_barcode_payload_matches_printed_text_for_lowercase_input():
+    # The bug this task exists for: payload was "h001a" while the label read
+    # "H-001-A", so the label scanned as something other than what it showed.
+    code = generate_position_codes("h", "1", "1", "a")[0]
+    letters_in_payload = [c for c in code if c.isalpha()]
+    letters_on_label = [c for c in display_position_code(code) if c.isalpha()]
+    assert letters_in_payload == letters_on_label
+
+
+def test_format_position_code_rejects_empty_corridor():
+    with pytest.raises(ValueError):
+        format_position_code("", "1")
+
+
+def test_format_position_code_rejects_multi_letter_corridor():
+    with pytest.raises(ValueError):
+        format_position_code("AB", "1")
+
+
+def test_format_position_code_rejects_non_letter_corridor():
+    with pytest.raises(ValueError):
+        format_position_code("%", "1")
+
+
+def test_format_position_code_rejects_non_letter_height():
+    with pytest.raises(ValueError):
+        format_position_code("H", "1", "%")
+
+
+def test_height_range_uppercase_before_validation():
+    # Mixed-case "A" to "z" is now accepted: both uppercase to valid letters "A"-"Z"
+    # (the old code would fail before uppercasing; the fix uppercases first).
+    codes = generate_position_codes("H", "1", "1", "A", "z")
+    assert codes == ["H001A", "H001B", "H001C", "H001D", "H001E", "H001F", "H001G",
+                     "H001H", "H001I", "H001J", "H001K", "H001L", "H001M", "H001N",
+                     "H001O", "H001P", "H001Q", "H001R", "H001S", "H001T", "H001U",
+                     "H001V", "H001W", "H001X", "H001Y", "H001Z"]
+
+
+def test_generate_position_codes_rejects_multi_char_height_from():
+    # Multi-char height_from should raise ValueError, not TypeError from ord()
+    with pytest.raises(ValueError):
+        generate_position_codes("H", "1", "1", "AB")
+
+
+def test_generate_position_codes_rejects_multi_char_height_to():
+    # Multi-char height_to should raise ValueError, not TypeError from ord()
+    with pytest.raises(ValueError):
+        generate_position_codes("H", "1", "1", "A", "BB")
+
+
+def test_codes_from_csv_rows_rejects_junk_position_code():
+    rows = [{"position_code": "N/A"}, {"position_code": "see note"}]
+
+    codes, skipped = codes_from_csv_rows(rows)
+
+    assert codes == []
+    assert [s.row_number for s in skipped] == [1, 2]
+
+
+def test_codes_from_csv_rows_zero_pads_the_position_code_column():
+    # parse_position_code's pattern accepts any digit count >= 1, so an
+    # un-padded CSV cell like "h29a" passed validation but was appended
+    # as-is - the barcode payload then disagreed with
+    # display_position_code's zero-padded caption ("H-029-A"), the exact
+    # defect class Task 1 exists to close, reachable via the CSV override
+    # column that bypasses typed-input validation.
+    rows = [{"position_code": "h29a"}]
+
+    codes, _skipped = codes_from_csv_rows(rows)
+
+    assert codes == ["H029A"]
+
+
+def test_codes_from_csv_rows_uppercases_position_code_column():
+    # Same barcode/text case-mismatch bug as Task 1, but for the CSV-column
+    # override path specifically: a lowercase cell must not survive into the
+    # code list, or the printed barcode payload would differ from the
+    # uppercase text the label displays.
+    rows = [{"position_code": "h099z"}]
+
+    codes, _skipped = codes_from_csv_rows(rows)
+
+    assert codes == ["H099Z"]

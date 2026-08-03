@@ -3,13 +3,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from barcode.errors import BarcodeError
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -17,26 +22,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.audit_log import append_print_log
-from app.core.config import default_settings_path
+from app.core.config import qsettings, shared_folder
 from app.core.inventory_import import (
     INVENTORY_CSV_FIELDS,
     InventoryItem,
     items_from_csv_rows,
 )
 from app.core.position_generator import display_position_code
-from app.core.print_service import send_to_printer
+from app.core.print_batch import BatchResult, PrintCancelled, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
-from app.core.zpl_print_service import windows_print_errors
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.print_preview_dialog import PrintPreviewDialog
+from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
 
 _DESCRIPTION_SKU_LIMIT = 5
 
-
-class AuditLogError(OSError):
-    """Raised when labels printed successfully but the audit log entry could not be written."""
+LARGE_BATCH_THRESHOLD = 200
+_RENDER_CHUNK_SIZE = 50
+_ESTIMATED_SECONDS_PER_LABEL = 0.02
 
 
 def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
@@ -48,16 +53,40 @@ def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
     return description
 
 
+def _validate_inventory_mapping(mapping: dict[str, int | None]) -> str | None:
+    if mapping.get("sku") is not None:
+        return None
+    return "SKU must be mapped"
+
+
+def _record_for_item(item: InventoryItem, warehouse_prefix: str, generated_date: str) -> dict:
+    return {
+        "sku": item.sku,
+        "name": item.name,
+        "client": item.client,
+        "batch": item.batch,
+        "expiry": item.expiry,
+        "position_code": display_position_code(item.position_code),
+        "position_data": f"{warehouse_prefix}{item.position_code}",
+        "generated_date": generated_date,
+    }
+
+
 class InventoryModePanel(QWidget):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.items: list[InventoryItem] = []
+        self._last_skipped_rows: list = []
+        self._last_import_rows: list[dict[str, str]] = []
 
         self.warehouse_combo = QComboBox()
         self.preset_combo = QComboBox()
+        self.preset_combo.activated.connect(self._on_preset_selected)
         self.refresh_from_settings(settings)
 
         self.result_label = QLabel("0 items imported")
+        self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self.result_label.linkActivated.connect(self._show_skipped_rows_detail)
 
         self.import_csv_button = QPushButton("Import CSV...")
         self.import_csv_button.clicked.connect(self._on_import_csv_clicked)
@@ -69,9 +98,20 @@ class InventoryModePanel(QWidget):
 
         self.items_table = QTableWidget(0, len(TABLE_COLUMNS))
         self.items_table.setHorizontalHeaderLabels(TABLE_COLUMNS)
+        self.items_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.items_table.itemChanged.connect(lambda _item: self._update_selection_label())
+
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Filter by SKU, name or position")
+        self.filter_edit.textChanged.connect(self._apply_filter)
+
+        self.selection_label = QLabel("0 of 0 selected")
 
         self.print_button = QPushButton("Print")
         self.print_button.clicked.connect(self._on_print_clicked)
+        self.print_button.setEnabled(False)
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
@@ -86,6 +126,8 @@ class InventoryModePanel(QWidget):
         layout.addWidget(self.import_csv_button)
         layout.addWidget(self.result_label)
         layout.addLayout(select_buttons)
+        layout.addWidget(self.filter_edit)
+        layout.addWidget(self.selection_label)
         layout.addWidget(self.items_table)
         layout.addWidget(self.print_button)
 
@@ -96,10 +138,36 @@ class InventoryModePanel(QWidget):
         for warehouse in settings.get("warehouses", []):
             self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
 
-        shared_folder = settings.get("shared_folder") or default_settings_path().parent
+        folder = shared_folder(settings)
         self.preset_combo.clear()
-        for preset in list_presets(Path(shared_folder), "inventory"):
+        for preset in list_presets(folder, "inventory"):
             self.preset_combo.addItem(preset.name, preset)
+        remembered_name = qsettings().value("inventory/last_template")
+        if remembered_name is not None:
+            index = self.preset_combo.findText(remembered_name)
+            if index >= 0:
+                self.preset_combo.setCurrentIndex(index)
+
+        if self.preset_combo.count() == 0:
+            self._warn_no_presets(folder)
+
+    def _warn_no_presets(self, shared_folder) -> None:
+        window = self.window()
+        if not hasattr(window, "statusBar"):
+            return  # not embedded in a QMainWindow (e.g. a standalone test)
+        window.statusBar().showMessage(
+            f"No label templates found in '{shared_folder}' - check the "
+            "shared folder's templates directory or your permissions."
+        )
+
+    def _show_status(self, message: str) -> None:
+        window = self.window()
+        if not hasattr(window, "statusBar"):
+            return  # not embedded in a QMainWindow (e.g. a standalone test)
+        window.statusBar().showMessage(message, 5000)
+
+    def _on_preset_selected(self, index: int) -> None:
+        qsettings().setValue("inventory/last_template", self.preset_combo.itemText(index))
 
     def load_items(self, rows: list[dict[str, str]]) -> list[InventoryItem]:
         items, skipped_rows = items_from_csv_rows(rows)
@@ -109,22 +177,33 @@ class InventoryModePanel(QWidget):
         self.items = items
         self._populate_table(items)
 
+        self._last_skipped_rows = skipped_rows
+        self._last_import_rows = rows
         item_unit = "item" if len(items) == 1 else "items"
         if skipped_rows:
             row_unit = "row" if len(skipped_rows) == 1 else "rows"
             self.result_label.setText(
-                f"{len(items)} {item_unit} imported ({len(skipped_rows)} {row_unit} skipped)"
+                f'{len(items)} {item_unit} imported '
+                f'(<a href="#">{len(skipped_rows)} {row_unit} skipped - show details</a>)'
             )
         else:
             self.result_label.setText(f"{len(items)} {item_unit} imported")
         return items
 
     def _populate_table(self, items: list[InventoryItem]) -> None:
+        self.items_table.setSortingEnabled(False)
+        # itemChanged fires once per setItem and the handler counts every row.
+        # With 2000 SKUs that is 14 000 signals x a 2000-row scan; block them
+        # and update the count once at the end.
+        self.items_table.blockSignals(True)
         self.items_table.setRowCount(len(items))
         for row_index, item in enumerate(items):
             check_item = QTableWidgetItem()
             check_item.setFlags(check_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             check_item.setCheckState(Qt.CheckState.Checked)
+            # The row carries its own item: the table can be re-sorted, so the
+            # row index is not a stable key into self.items.
+            check_item.setData(Qt.ItemDataRole.UserRole, item)
             self.items_table.setItem(row_index, 0, check_item)
 
             values = [item.sku, item.name, item.client, item.position_code, item.batch, item.expiry]
@@ -132,6 +211,9 @@ class InventoryModePanel(QWidget):
                 cell = QTableWidgetItem(value)
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.items_table.setItem(row_index, column, cell)
+        self.items_table.blockSignals(False)
+        self.items_table.setSortingEnabled(True)
+        self._update_selection_label()
 
     def _set_all_checked(self, checked: bool) -> None:
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
@@ -139,17 +221,41 @@ class InventoryModePanel(QWidget):
             check_item = self.items_table.item(row, 0)
             if check_item is not None:
                 check_item.setCheckState(state)
+        self._update_selection_label()
 
     def checked_items(self) -> list[InventoryItem]:
         checked = []
         for row in range(self.items_table.rowCount()):
             check_item = self.items_table.item(row, 0)
             if check_item is not None and check_item.checkState() == Qt.CheckState.Checked:
-                checked.append(self.items[row])
+                checked.append(check_item.data(Qt.ItemDataRole.UserRole))
         return checked
 
+    def _apply_filter(self, text: str) -> None:
+        needle = text.strip().lower()
+        for row in range(self.items_table.rowCount()):
+            check_item = self.items_table.item(row, 0)
+            item = check_item.data(Qt.ItemDataRole.UserRole) if check_item else None
+            haystack = (
+                f"{item.sku} {item.name} {item.position_code}".lower() if item else ""
+            )
+            self.items_table.setRowHidden(row, bool(needle) and needle not in haystack)
+
+    def _update_selection_label(self) -> None:
+        total = self.items_table.rowCount()
+        checked_count = len(self.checked_items())
+        self.selection_label.setText(f"{checked_count} of {total} selected")
+        self.print_button.setEnabled(checked_count > 0)
+
     def _on_import_csv_clicked(self) -> None:
-        dialog = CsvImportDialog(INVENTORY_CSV_FIELDS, parent=self)
+        dialog = CsvImportDialog(
+            INVENTORY_CSV_FIELDS,
+            parent=self,
+            settings=self._settings,
+            mode="inventory",
+            validate_mapping=_validate_inventory_mapping,
+            row_would_be_skipped=lambda row: len(items_from_csv_rows([row])[0]) == 0,
+        )
         if not dialog.exec():
             return
         try:
@@ -157,20 +263,57 @@ class InventoryModePanel(QWidget):
         except ValueError as error:
             QMessageBox.warning(self, "Import failed", str(error))
 
-    def _on_print_clicked(self) -> None:
-        try:
-            self.print_checked_items()
-        except AuditLogError as error:
-            QMessageBox.warning(
-                self,
-                "Audit log failed",
-                f"Labels printed, but the audit log entry failed: {error}\n"
-                "Do not reprint this batch.",
-            )
-        except (ValueError, OSError, *windows_print_errors()) as error:
-            QMessageBox.warning(self, "Print failed", str(error))
+    def _show_skipped_rows_detail(self, _href: str = "") -> None:
+        dialog = SkippedRowsDialog(self._last_skipped_rows, self._last_import_rows, parent=self)
+        dialog.exec()
 
-    def print_checked_items(self, output_pdf_path: Path | None = None) -> None:
+    def _on_print_clicked(self) -> None:
+        checked = self.checked_items()
+        if not checked:
+            QMessageBox.warning(
+                self, "Print failed", "Nothing to print - import a CSV and check at least one row"
+            )
+            return
+        warehouse_prefix = self.warehouse_combo.currentData()
+        if not warehouse_prefix:
+            QMessageBox.warning(
+                self, "Print failed", "No warehouse selected - add one in Settings first"
+            )
+            return
+        preset: TemplatePreset | None = self.preset_combo.currentData()
+        if preset is None:
+            QMessageBox.warning(
+                self, "Print failed",
+                "No label template selected - check the shared folder's templates directory",
+            )
+            return
+
+        generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
+
+        def render_page(index: int) -> Image.Image:
+            record = _record_for_item(checked[index], warehouse_prefix, generated_date)
+            return render_records(preset, [record])[0]
+
+        try:
+            dialog = PrintPreviewDialog(
+                count=len(checked),
+                render_page=render_page,
+                preset=preset,
+                settings=self._settings,
+                warehouse_display=self.warehouse_combo.currentText(),
+                on_confirm=self.print_checked_items,
+                parent=self,
+            )
+        except (ValueError, OSError, BarcodeError) as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+            return
+        if dialog.exec():
+            unit = "item" if len(checked) == 1 else "items"
+            self._show_status(f"Printed {len(checked)} {unit}")
+
+    def print_checked_items(
+        self, copies: int = 1, output_pdf_path: Path | None = None
+    ) -> BatchResult:
         checked = self.checked_items()
         if not checked:
             raise ValueError("Nothing to print - import a CSV and check at least one row")
@@ -186,51 +329,50 @@ class InventoryModePanel(QWidget):
             )
 
         generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
+        records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
+        if len(records) > LARGE_BATCH_THRESHOLD:
+            images = self._render_with_progress(preset, records)
+        else:
+            images = render_records(preset, records)
 
-        records = [
-            {
-                "sku": item.sku,
-                "name": item.name,
-                "client": item.client,
-                "batch": item.batch,
-                "expiry": item.expiry,
-                "position_code": display_position_code(item.position_code),
-                "position_data": f"{warehouse_prefix}{item.position_code}",
-                "generated_date": generated_date,
-            }
-            for item in checked
-        ]
-        images = render_records(preset, records)
-
-        send_to_printer(
+        description = _describe_skus([item.sku for item in checked])
+        return print_batch(
             images,
-            width_mm=preset.width_mm,
-            height_mm=preset.height_mm,
-            settings=self._settings,
+            preset,
+            self._settings,
+            mode="inventory",
+            warehouse_prefix=warehouse_prefix,
+            description=description,
+            copies=copies,
             output_pdf_path=output_pdf_path,
         )
 
-        shared_folder = self._settings.get("shared_folder") or default_settings_path().parent
-        Path(shared_folder).mkdir(parents=True, exist_ok=True)
-        now = datetime.now(timezone.utc).astimezone()
-        debug_pdf_path = Path(shared_folder) / f"inventory_label_preview_{now:%Y%m%d_%H%M%S}.pdf"
-        send_to_printer(
-            images,
-            width_mm=preset.width_mm,
-            height_mm=preset.height_mm,
-            settings=self._settings,
-            output_pdf_path=debug_pdf_path,
+    def _render_with_progress(
+        self, preset: TemplatePreset, records: list[dict]
+    ) -> list[Image.Image]:
+        estimated_minutes = max(1, round(len(records) * _ESTIMATED_SECONDS_PER_LABEL / 60))
+        answer = QMessageBox.question(
+            self,
+            "Print a large batch?",
+            f"Render and print {len(records)} labels? This will take about "
+            f"{estimated_minutes} minute{'s' if estimated_minutes != 1 else ''}.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
+        if answer != QMessageBox.StandardButton.Yes:
+            raise PrintCancelled()
 
-        log_path = Path(shared_folder) / "audit_log.csv"
-        description = _describe_skus([item.sku for item in checked])
+        progress = QProgressDialog("Rendering labels...", "Cancel", 0, len(records), self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        images: list[Image.Image] = []
         try:
-            append_print_log(
-                log_path,
-                mode="inventory",
-                warehouse_prefix=warehouse_prefix,
-                count=len(checked),
-                description=description,
-            )
-        except OSError as error:
-            raise AuditLogError(str(error)) from error
+            for start in range(0, len(records), _RENDER_CHUNK_SIZE):
+                if progress.wasCanceled():
+                    raise PrintCancelled()
+                chunk = records[start : start + _RENDER_CHUNK_SIZE]
+                images.extend(render_records(preset, chunk))
+                progress.setValue(min(start + _RENDER_CHUNK_SIZE, len(records)))
+        finally:
+            progress.close()
+        return images

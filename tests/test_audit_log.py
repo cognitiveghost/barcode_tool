@@ -1,44 +1,70 @@
 import csv
 
-from app.core.audit_log import append_print_log
+from app.core.audit_log import append_print_log, consolidate_audit_log
 
 
-def test_append_creates_file_with_header_and_row(tmp_path):
-    log_path = tmp_path / "audit.csv"
+def test_append_creates_one_file_per_call(tmp_path):
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=2, description="H029-H030",
+                      preset="Standard", printer="HP-1")
 
-    append_print_log(log_path, mode="positions", warehouse_prefix="C001", count=2, description="H029-H030")
-
-    with log_path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.reader(f))
-
-    assert rows[0] == ["timestamp", "user", "mode", "warehouse_prefix", "count", "description"]
-    assert rows[1][2:] == ["positions", "C001", "2", "H029-H030"]
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 1
+    rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
+    assert rows[0] == ["timestamp", "user", "mode", "warehouse_prefix", "count", "description", "preset", "printer"]
+    assert rows[1][2:] == ["positions", "C001", "2", "H029-H030", "Standard", "HP-1"]
 
 
-def test_append_twice_adds_second_row_without_duplicate_header(tmp_path):
-    log_path = tmp_path / "audit.csv"
+def test_append_twice_creates_two_separate_files(tmp_path):
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H029",
+                      preset="Standard", printer="HP-1")
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H030",
+                      preset="Standard", printer="HP-1")
 
-    append_print_log(log_path, mode="positions", warehouse_prefix="C001", count=1, description="H029")
-    append_print_log(log_path, mode="positions", warehouse_prefix="C001", count=1, description="H030")
-
-    with log_path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.reader(f))
-
-    assert len(rows) == 3
-    assert rows.count(
-        ["timestamp", "user", "mode", "warehouse_prefix", "count", "description"]
-    ) == 1
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    assert len(audit_files) == 2
 
 
 def test_leading_formula_characters_are_escaped(tmp_path):
-    log_path = tmp_path / "audit.csv"
-
     append_print_log(
-        log_path, mode="positions", warehouse_prefix="=C001", count=1, description="=SUM(A1)"
+        tmp_path, mode="positions", warehouse_prefix="=C001", count=1, description="=SUM(A1)",
+        preset="=PRESET", printer="HP-1",
     )
 
-    with log_path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.reader(f))
-
+    audit_files = list((tmp_path / "audit").glob("*.csv"))
+    rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
     assert rows[1][3] == "'=C001"
     assert rows[1][5] == "'=SUM(A1)"
+    assert rows[1][6] == "'=PRESET"
+
+
+def test_consolidate_merges_all_per_file_rows_and_removes_sources(tmp_path):
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H029",
+                      preset="Standard", printer="HP-1")
+    append_print_log(tmp_path, mode="inventory", warehouse_prefix="C001", count=2, description="SKU1, SKU2",
+                      preset="Standard", printer="HP-1")
+
+    merged = consolidate_audit_log(tmp_path)
+
+    assert merged == 2
+    assert list((tmp_path / "audit").glob("*.csv")) == []
+    rows = list(csv.reader((tmp_path / "audit_log.csv").read_text(encoding="utf-8").splitlines()))
+    assert len(rows) == 3  # header + 2 rows
+
+
+def test_consolidate_appends_to_an_existing_consolidated_file(tmp_path):
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H029",
+                      preset="Standard", printer="HP-1")
+    consolidate_audit_log(tmp_path)
+
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H030",
+                      preset="Standard", printer="HP-1")
+    merged = consolidate_audit_log(tmp_path)
+
+    assert merged == 1
+    rows = list(csv.reader((tmp_path / "audit_log.csv").read_text(encoding="utf-8").splitlines()))
+    assert len(rows) == 3  # header + 2 total rows across both consolidations
+
+
+def test_consolidate_with_nothing_to_merge_returns_zero(tmp_path):
+    assert consolidate_audit_log(tmp_path) == 0
+    assert not (tmp_path / "audit_log.csv").exists()
