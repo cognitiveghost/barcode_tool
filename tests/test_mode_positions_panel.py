@@ -633,8 +633,34 @@ def test_large_batch_prompts_and_renders_in_chunks(monkeypatch, tmp_path):
 
     assert len(questions) == 1
     assert len(results) == 250
-    assert sum(render_calls) == 250
-    assert len(render_calls) > 1  # rendered in more than one chunk, not one bulk call
+    assert render_calls == [50, 50, 50, 50, 50]
+
+
+def test_large_batch_chunk_sizes_for_a_non_round_batch(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("216")  # 217 codes: 4 full chunks of 50 + a 17-record remainder
+
+    render_calls = []
+
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(len(records))
+        return [Image.new("RGB", (10, 10)) for _ in records]
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", _fake_render)
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+
+    results = panel.generate()
+
+    assert len(results) == 217
+    assert render_calls == [50, 50, 50, 50, 17]
 
 
 def test_confirmation_message_shows_the_count_and_a_time_estimate(monkeypatch, tmp_path):
