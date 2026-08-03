@@ -85,3 +85,7 @@ def test_auto_map_leaves_unrecognized_fields_unmapped():
 
 def test_auto_map_is_case_and_whitespace_insensitive():
     assert auto_map_fields(["  SKU  "], ["sku"]) == {"sku": 0}
+
+
+def test_auto_map_prefers_exact_name_over_synonym():
+    assert auto_map_fields(["code", "sku"], ["sku"]) == {"sku": 1}

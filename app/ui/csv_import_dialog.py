@@ -96,6 +96,11 @@ class CsvImportDialog(QDialog):
         self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.resize(900, 600)
 
+        # No CSV is loaded yet, so nothing else will trigger this - without
+        # it, a validator that would fail on an empty mapping shows OK
+        # enabled until the first file loads.
+        self._update_ok_state()
+
     def _on_browse_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Import CSV", filter="CSV files (*.csv)")
         if path:

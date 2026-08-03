@@ -322,3 +322,14 @@ def test_accepting_without_settings_does_not_raise(tmp_path):
     dialog.load_csv(path)
 
     dialog.accept()  # must not raise
+
+
+def test_ok_button_disabled_from_construction_when_validator_would_fail():
+    _app()
+    dialog = CsvImportDialog(
+        FIELDS,
+        validate_mapping=lambda mapping: None if mapping.get("corridor") is not None else "Map Corridor",
+    )
+
+    assert not dialog._ok_button.isEnabled()
+    assert dialog._reason_label.text() == "Map Corridor"

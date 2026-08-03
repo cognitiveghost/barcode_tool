@@ -57,13 +57,18 @@ def auto_map_fields(header: list[str], field_names: list[str]) -> dict[str, int 
     """Guess an initial mapping from normalized header names, plus a small
     synonym table for the handful of fields ambiguous enough to need it
     (see _FIELD_SYNONYMS). Returns None for any field with no match - never
-    guesses wrong on purpose, only fills in the unambiguous cases."""
+    guesses wrong on purpose, only fills in the unambiguous cases.
+
+    An exact normalized-name match anywhere in the header always wins over a
+    synonym match, regardless of column order - a synonym is a fallback for
+    when the field's own name isn't present at all, not a peer candidate."""
     normalized_header = [_normalize(cell) for cell in header]
     mapping: dict[str, int | None] = {}
     for field in field_names:
-        candidates = {_normalize(field)} | {_normalize(s) for s in _FIELD_SYNONYMS.get(field, set())}
-        mapping[field] = next(
-            (index for index, name in enumerate(normalized_header) if name in candidates),
-            None,
-        )
+        exact = _normalize(field)
+        index = next((i for i, name in enumerate(normalized_header) if name == exact), None)
+        if index is None:
+            synonyms = {_normalize(s) for s in _FIELD_SYNONYMS.get(field, set())}
+            index = next((i for i, name in enumerate(normalized_header) if name in synonyms), None)
+        mapping[field] = index
     return mapping
