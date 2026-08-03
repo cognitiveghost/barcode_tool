@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QProgressDialog
 
 from app.core.print_batch import BatchResult
@@ -26,6 +27,14 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
         "app.core.config.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
+    # refresh_from_settings() (called from __init__) reads the remembered
+    # last-used template via qsettings() - QSettings("barcode_tool",
+    # "barcode_tool") on the real machine, unless redirected. Left unpatched,
+    # once that real store exists on disk every later-constructed panel in
+    # the same test process would restore from it, the same class of
+    # cross-test leak Task 18 found and fixed for csv_import_dialog.py.
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
 
 
 def _write_preset(
@@ -193,12 +202,17 @@ def test_print_button_shows_warning_when_preview_dialog_construction_fails(monke
 
 
 def test_print_button_click_without_generated_labels_shows_warning(monkeypatch):
+    # print_button now starts disabled (nothing generated yet), so a real
+    # .click() is a Qt no-op and would not reach _on_print_clicked at all.
+    # Call the handler directly - it's the same path Ctrl+P dispatches to,
+    # and the "nothing to print" guard it exercises must still be there for
+    # that shortcut, which bypasses QPushButton.isEnabled() entirely.
     _app()
     panel = PositionsModePanel(SETTINGS)
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    panel.print_button.click()
+    panel._on_print_clicked()
 
     assert len(warnings) == 1
 
@@ -782,3 +796,46 @@ def test_generate_from_rows_also_uses_the_large_batch_path(monkeypatch, tmp_path
 
     assert len(questions) == 1
     assert len(results) == 250
+
+
+def test_generate_button_disabled_when_range_is_invalid():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert not panel.generate_button.isEnabled()  # empty corridor/number at construction
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    assert panel.generate_button.isEnabled()
+
+
+def test_print_button_disabled_until_something_is_generated():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    assert not panel.print_button.isEnabled()
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.generate()
+
+    assert panel.print_button.isEnabled()
+
+
+def test_last_used_template_is_restored_on_next_construction(tmp_path, monkeypatch):
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
+    _app()
+    shared = tmp_path / "shared"
+    _write_preset(shared, "positions", "a", "Preset A", 50, 30)
+    _write_preset(shared, "positions", "b", "Preset B", 50, 30)
+    settings = {**SETTINGS, "shared_folder": str(shared)}
+
+    first = PositionsModePanel(settings)
+    first.preset_combo.setCurrentIndex(first.preset_combo.findText("Preset B"))
+    first._on_preset_selected(first.preset_combo.currentIndex())
+
+    second = PositionsModePanel(settings)
+
+    assert second.preset_combo.currentText() == "Preset B"

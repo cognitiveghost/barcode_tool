@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.config import shared_folder
+from app.core.config import qsettings, shared_folder
 from app.core.inventory_import import (
     INVENTORY_CSV_FIELDS,
     InventoryItem,
@@ -76,6 +76,7 @@ class InventoryModePanel(QWidget):
 
         self.warehouse_combo = QComboBox()
         self.preset_combo = QComboBox()
+        self.preset_combo.activated.connect(self._on_preset_selected)
         self.refresh_from_settings(settings)
 
         self.result_label = QLabel("0 items imported")
@@ -105,6 +106,7 @@ class InventoryModePanel(QWidget):
 
         self.print_button = QPushButton("Print")
         self.print_button.clicked.connect(self._on_print_clicked)
+        self.print_button.setEnabled(False)
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
@@ -135,6 +137,11 @@ class InventoryModePanel(QWidget):
         self.preset_combo.clear()
         for preset in list_presets(folder, "inventory"):
             self.preset_combo.addItem(preset.name, preset)
+        remembered_name = qsettings().value("inventory/last_template")
+        if remembered_name is not None:
+            index = self.preset_combo.findText(remembered_name)
+            if index >= 0:
+                self.preset_combo.setCurrentIndex(index)
 
         if self.preset_combo.count() == 0:
             self._warn_no_presets(folder)
@@ -147,6 +154,15 @@ class InventoryModePanel(QWidget):
             f"No label templates found in '{shared_folder}' - check the "
             "shared folder's templates directory or your permissions."
         )
+
+    def _show_status(self, message: str) -> None:
+        window = self.window()
+        if not hasattr(window, "statusBar"):
+            return  # not embedded in a QMainWindow (e.g. a standalone test)
+        window.statusBar().showMessage(message, 5000)
+
+    def _on_preset_selected(self, index: int) -> None:
+        qsettings().setValue("inventory/last_template", self.preset_combo.itemText(index))
 
     def load_items(self, rows: list[dict[str, str]]) -> list[InventoryItem]:
         items, skipped_rows = items_from_csv_rows(rows)
@@ -222,7 +238,9 @@ class InventoryModePanel(QWidget):
 
     def _update_selection_label(self) -> None:
         total = self.items_table.rowCount()
-        self.selection_label.setText(f"{len(self.checked_items())} of {total} selected")
+        checked_count = len(self.checked_items())
+        self.selection_label.setText(f"{checked_count} of {total} selected")
+        self.print_button.setEnabled(checked_count > 0)
 
     def _on_import_csv_clicked(self) -> None:
         dialog = CsvImportDialog(
@@ -284,7 +302,9 @@ class InventoryModePanel(QWidget):
         except (ValueError, OSError, BarcodeError) as error:
             QMessageBox.warning(self, "Print failed", str(error))
             return
-        dialog.exec()
+        if dialog.exec():
+            unit = "item" if len(checked) == 1 else "items"
+            self._show_status(f"Printed {len(checked)} {unit}")
 
     def print_checked_items(
         self, copies: int = 1, output_pdf_path: Path | None = None

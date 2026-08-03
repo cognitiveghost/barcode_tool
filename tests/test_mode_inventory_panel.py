@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.core import print_service
@@ -34,6 +34,16 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
         "app.core.config.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
+    # refresh_from_settings() (called from __init__) reads the remembered
+    # last-used template via qsettings() - QSettings("barcode_tool",
+    # "barcode_tool") on the real machine, unless redirected. Left unpatched,
+    # once that real store exists on disk every later-constructed panel in
+    # the same test process would restore from it, the same class of
+    # cross-test leak Task 18 found and fixed for csv_import_dialog.py. Use
+    # this file's own tmp_path-scoped ini so a "remembered template" test
+    # here can never leak into test_mode_positions_panel.py's store.
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.qsettings", lambda: store)
 
 
 def _write_preset(
@@ -506,12 +516,17 @@ def test_print_button_shows_warning_when_preview_dialog_construction_fails(monke
 
 
 def test_print_button_click_without_items_shows_warning(monkeypatch):
+    # print_button now starts disabled (table is empty), so a real .click()
+    # is a Qt no-op and would not reach _on_print_clicked at all. Call the
+    # handler directly - it's the same path Ctrl+P dispatches to, and the
+    # "nothing to print" guard it exercises must still be there for that
+    # shortcut, which bypasses QPushButton.isEnabled() entirely.
     _app()
     panel = InventoryModePanel(SETTINGS)
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    panel.print_button.click()
+    panel._on_print_clicked()
 
     assert len(warnings) == 1
 
@@ -679,3 +694,18 @@ def test_print_preview_render_page_builds_the_same_record_shape(monkeypatch, tmp
     assert record["sku"] == "SKU1"
     assert record["name"] == "Widget"
     assert record["position_data"] == "C001H011A"
+
+
+def test_print_button_disabled_until_a_row_is_checked():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+
+    assert not panel.print_button.isEnabled()
+
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    assert panel.print_button.isEnabled()
+
+    panel._set_all_checked(False)
+
+    assert not panel.print_button.isEnabled()

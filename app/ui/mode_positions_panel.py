@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.config import shared_folder
+from app.core.config import qsettings, shared_folder
 from app.core.position_generator import (
     NUMBER_MAX,
     codes_from_csv_rows,
@@ -85,19 +85,21 @@ class PositionsModePanel(QWidget):
         self.custom_text_edit = QLineEdit()
 
         self.preset_combo = QComboBox()
+        self.preset_combo.activated.connect(self._on_preset_selected)
         self.refresh_from_settings(settings)
 
         self.result_label = QLabel("0 labels generated")
         self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
         self.result_label.linkActivated.connect(self._show_skipped_rows_detail)
-        generate_button = QPushButton("Generate")
-        generate_button.clicked.connect(self._on_generate_clicked)
+        self.generate_button = QPushButton("Generate")
+        self.generate_button.clicked.connect(self._on_generate_clicked)
 
         self.import_csv_button = QPushButton("Import CSV...")
         self.import_csv_button.clicked.connect(self._on_import_csv_clicked)
 
         self.print_button = QPushButton("Print")
         self.print_button.clicked.connect(self._on_print_clicked)
+        self.print_button.setEnabled(False)
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
@@ -112,7 +114,7 @@ class PositionsModePanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
-        layout.addWidget(generate_button)
+        layout.addWidget(self.generate_button)
         layout.addWidget(self.import_csv_button)
         layout.addWidget(self.result_label)
         layout.addWidget(self.print_button)
@@ -138,6 +140,11 @@ class PositionsModePanel(QWidget):
         self.preset_combo.clear()
         for preset in list_presets(folder, "positions"):
             self.preset_combo.addItem(preset.name, preset)
+        remembered_name = qsettings().value("positions/last_template")
+        if remembered_name is not None:
+            index = self.preset_combo.findText(remembered_name)
+            if index >= 0:
+                self.preset_combo.setCurrentIndex(index)
 
         if self.preset_combo.count() == 0:
             self._warn_no_presets(folder)
@@ -150,6 +157,15 @@ class PositionsModePanel(QWidget):
             f"No label templates found in '{shared_folder}' - check the "
             "shared folder's templates directory or your permissions."
         )
+
+    def _show_status(self, message: str) -> None:
+        window = self.window()
+        if not hasattr(window, "statusBar"):
+            return  # not embedded in a QMainWindow (e.g. a standalone test)
+        window.statusBar().showMessage(message, 5000)
+
+    def _on_preset_selected(self, index: int) -> None:
+        qsettings().setValue("positions/last_template", self.preset_combo.itemText(index))
 
     def _on_generate_clicked(self) -> None:
         try:
@@ -176,7 +192,9 @@ class PositionsModePanel(QWidget):
         except (ValueError, OSError, BarcodeError) as error:
             QMessageBox.warning(self, "Print failed", str(error))
             return
-        dialog.exec()
+        if dialog.exec():
+            unit = "label" if len(self.generated_labels) == 1 else "labels"
+            self._show_status(f"Printed {len(self.generated_labels)} {unit}")
 
     def generate(self) -> list[tuple[str, Image.Image]]:
         height_from = self.height_from_edit.text() or None
@@ -246,6 +264,7 @@ class PositionsModePanel(QWidget):
         self.generated_codes = codes
         self.generated_labels = images
         self._generated_preset = preset
+        self.print_button.setEnabled(bool(self.generated_labels))
         return results
 
     def _render_with_progress(
@@ -289,9 +308,11 @@ class PositionsModePanel(QWidget):
             )
         except ValueError:
             self.count_label.setText("")
+            self.generate_button.setEnabled(False)
             return
         unit = "label" if len(codes) == 1 else "labels"
         self.count_label.setText(f"-> {len(codes)} {unit}")
+        self.generate_button.setEnabled(bool(codes))
 
     def _on_import_csv_clicked(self) -> None:
         dialog = CsvImportDialog(

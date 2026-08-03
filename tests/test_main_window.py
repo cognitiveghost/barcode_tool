@@ -1,4 +1,5 @@
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QPushButton
 
 import app.ui.main_window as main_window_module
@@ -24,6 +25,20 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
         "app.core.config.default_settings_path",
         lambda: tmp_path / "settings.json",
     )
+    # MainWindow's own geometry restore, and the geometry/template-memory
+    # restore each embedded panel does in refresh_from_settings, all go
+    # through qsettings() (QSettings("barcode_tool", "barcode_tool") on the
+    # real machine). Unpatched, a MainWindow constructed here would read
+    # (and, on close, write) the developer's real ~/.config/barcode_tool
+    # store - and once that store exists, every later-constructed window in
+    # the same test process silently restores geometry from it, breaking
+    # unrelated size assertions in full-suite runs (see Task 18's report and
+    # test_csv_import_dialog.py's identical fixture). Redirect every module
+    # that owns its own qsettings() import to one throwaway ini per test.
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.main_window.qsettings", lambda: store)
+    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.qsettings", lambda: store)
 
 
 def test_main_window_title():
@@ -157,3 +172,32 @@ def test_main_window_prunes_the_archive_on_startup(monkeypatch, tmp_path):
     MainWindow()
 
     assert len(calls) == 1
+
+
+def test_geometry_is_restored_from_qsettings(tmp_path, monkeypatch):
+    # Back QSettings with a temp ini rather than the real user config, and
+    # patch the accessor so the test cannot depend on QSettings' own caching.
+    _app()
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.main_window.qsettings", lambda: store)
+
+    first = MainWindow()
+    first.resize(742, 531)
+    first.close()
+
+    second = MainWindow()
+
+    # 742x531 fits the offscreen platform's 800x800 screen. restoreGeometry
+    # clamps to the screen, so a larger assertion would fail on the clamp
+    # rather than on the code. Verified to round-trip exactly (same value
+    # Task 18 verified for the CSV dialog on this same platform).
+    assert second.size().width() == 742
+    assert second.size().height() == 531
+
+
+def test_shortcuts_are_registered():
+    _app()
+    window = MainWindow()
+
+    shortcuts = {a.shortcut().toString() for a in window.actions()}
+    assert {"Ctrl+P", "Ctrl+O", "Ctrl+,"} <= shortcuts

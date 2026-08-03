@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.config import default_settings_path, load_settings
+from app.core.config import default_settings_path, load_settings, qsettings
 from app.core.print_batch import prune_archive
 from app.ui.mode_inventory_panel import InventoryModePanel
 from app.ui.mode_positions_panel import PositionsModePanel
@@ -67,8 +67,23 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self._update_share_banner()
 
+        geometry = qsettings().value("main_window/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
         settings_action = QAction("Settings...", self)
+        settings_action.setShortcut(QKeySequence("Ctrl+,"))
         settings_action.triggered.connect(self._open_settings)
+
+        print_action = QAction("Print", self)
+        print_action.setShortcut(QKeySequence.StandardKey.Print)
+        print_action.triggered.connect(self._print_current_tab)
+
+        import_action = QAction("Import CSV...", self)
+        import_action.setShortcut(QKeySequence("Ctrl+O"))
+        import_action.triggered.connect(self._import_current_tab)
+
+        self.addActions([settings_action, print_action, import_action])
         self.menuBar().addAction(settings_action)
 
     def _warn_settings_recovered(self, message: str) -> None:
@@ -87,3 +102,16 @@ class MainWindow(QMainWindow):
             self.positions_panel.refresh_from_settings(self._settings)
             self.inventory_panel.refresh_from_settings(self._settings)
             self._update_share_banner()
+
+    def _current_panel(self):
+        return self.tabs.currentWidget()
+
+    def _print_current_tab(self) -> None:
+        self._current_panel()._on_print_clicked()
+
+    def _import_current_tab(self) -> None:
+        self._current_panel()._on_import_csv_clicked()
+
+    def closeEvent(self, event) -> None:
+        qsettings().setValue("main_window/geometry", self.saveGeometry())
+        super().closeEvent(event)
