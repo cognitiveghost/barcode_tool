@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -18,6 +19,7 @@ from app.core.print_batch import prune_archive
 from app.ui.mode_inventory_panel import InventoryModePanel
 from app.ui.mode_positions_panel import PositionsModePanel
 from app.ui.settings_window import SettingsWindow
+from app.ui.theme import DEFAULT_THEME, THEMES, apply_theme
 
 
 class _ShareBanner(QWidget):
@@ -86,6 +88,20 @@ class MainWindow(QMainWindow):
         self.addActions([settings_action, print_action, import_action])
         self.menuBar().addAction(settings_action)
 
+        current_theme = qsettings().value("theme", DEFAULT_THEME)
+        apply_theme(QApplication.instance(), current_theme)
+
+        view_menu = self.menuBar().addMenu("View")
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        theme_labels = {"system": "System default", "light": "Light", "dark": "Dark"}
+        for theme in THEMES:
+            action = QAction(theme_labels[theme], self, checkable=True)
+            action.setChecked(theme == current_theme)
+            action.triggered.connect(lambda _checked, t=theme: self._set_theme(t))
+            theme_group.addAction(action)
+            view_menu.addAction(action)
+
     def _warn_settings_recovered(self, message: str) -> None:
         QMessageBox.warning(self, "Settings reset", message)
 
@@ -102,6 +118,10 @@ class MainWindow(QMainWindow):
             self.positions_panel.refresh_from_settings(self._settings)
             self.inventory_panel.refresh_from_settings(self._settings)
             self._update_share_banner()
+
+    def _set_theme(self, theme: str) -> None:
+        apply_theme(QApplication.instance(), theme)
+        qsettings().setValue("theme", theme)
 
     def _current_panel(self):
         return self.tabs.currentWidget()

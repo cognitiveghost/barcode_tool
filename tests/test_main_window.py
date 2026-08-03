@@ -1,6 +1,6 @@
 import pytest
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QMenu, QPushButton
 
 import app.ui.main_window as main_window_module
 from app.core.config import DEFAULT_SETTINGS, save_settings
@@ -201,3 +201,36 @@ def test_shortcuts_are_registered():
 
     shortcuts = {a.shortcut().toString() for a in window.actions()}
     assert {"Ctrl+P", "Ctrl+O", "Ctrl+,"} <= shortcuts
+
+
+def test_view_menu_has_three_theme_actions():
+    _app()
+    window = MainWindow()
+
+    view_menu = next(m for m in window.menuBar().findChildren(QMenu) if m.title() == "View")
+    labels = {a.text() for a in view_menu.actions()}
+    assert labels == {"System default", "Light", "Dark"}
+
+
+def test_selecting_a_theme_persists_and_applies(tmp_path, monkeypatch):
+    _app()
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.ui.main_window.qsettings", lambda: store)
+    window = MainWindow()
+
+    window._set_theme("dark")
+
+    assert store.value("theme") == "dark"
+
+
+def test_startup_restores_the_persisted_theme(tmp_path, monkeypatch):
+    _app()
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    store.setValue("theme", "dark")
+    monkeypatch.setattr("app.ui.main_window.qsettings", lambda: store)
+
+    window = MainWindow()
+
+    view_menu = next(m for m in window.menuBar().findChildren(QMenu) if m.title() == "View")
+    checked = next(a for a in view_menu.actions() if a.isChecked())
+    assert checked.text() == "Dark"
