@@ -1,7 +1,7 @@
 import csv
 
 import pytest
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication, QHeaderView, QMessageBox
 
 from app.ui.csv_import_dialog import CsvImportDialog

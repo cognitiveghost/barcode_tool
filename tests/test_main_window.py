@@ -1,6 +1,6 @@
 import pytest
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QMenu, QPushButton
+from PySide6.QtWidgets import QApplication, QMenu
 
 import app.ui.main_window as main_window_module
 from app.core.config import DEFAULT_SETTINGS, save_settings
@@ -234,3 +234,36 @@ def test_startup_restores_the_persisted_theme(tmp_path, monkeypatch):
     view_menu = next(m for m in window.menuBar().findChildren(QMenu) if m.title() == "View")
     checked = next(a for a in view_menu.actions() if a.isChecked())
     assert checked.text() == "Dark"
+
+
+def test_invalid_persisted_theme_falls_back_to_system(tmp_path, monkeypatch):
+    _app()
+    store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
+    store.setValue("theme", "sepia")  # not a real theme
+    monkeypatch.setattr("app.ui.main_window.qsettings", lambda: store)
+
+    window = MainWindow()  # must not raise
+
+    view_menu = next(m for m in window.menuBar().findChildren(QMenu) if m.title() == "View")
+    checked = next(a for a in view_menu.actions() if a.isChecked())
+    assert checked.text() == "System default"
+
+
+def test_corrupted_settings_warning_reaches_the_log_file(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    path.write_text("{not valid json", encoding="utf-8")
+    _app()
+    # _warn_settings_recovered pops a real QMessageBox.warning modal - avoid
+    # blocking on it under the offscreen QPA platform, same as
+    # test_corrupt_settings_shows_a_warning_and_still_opens above.
+    monkeypatch.setattr(
+        "app.ui.main_window.QMessageBox.warning",
+        lambda *args, **kwargs: None,
+    )
+
+    MainWindow()  # constructs with this tmp_path as its settings location
+
+    import socket
+    log_path = tmp_path / "logs" / f"{socket.gethostname()}.log"
+    assert log_path.exists()
+    assert "could not be read" in log_path.read_text(encoding="utf-8")

@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import LOGGER_NAME
-from app.core.print_batch import BatchResult, print_batch, prune_archive
+from app.core.print_batch import print_batch, prune_archive
 from app.core.template_renderer import TemplatePreset
 
 

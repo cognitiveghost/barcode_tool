@@ -129,7 +129,7 @@ def test_codes_from_csv_rows_captures_skip_reason():
         {"corridor": "H", "number": "not-a-number", "height": ""},
     ]
 
-    codes, skipped = codes_from_csv_rows(rows)
+    _codes, skipped = codes_from_csv_rows(rows)
 
     assert len(skipped) == 1
     assert skipped[0].row_number == 2
@@ -269,6 +269,20 @@ def test_codes_from_csv_rows_rejects_junk_position_code():
 
     assert codes == []
     assert [s.row_number for s in skipped] == [1, 2]
+
+
+def test_codes_from_csv_rows_zero_pads_the_position_code_column():
+    # parse_position_code's pattern accepts any digit count >= 1, so an
+    # un-padded CSV cell like "h29a" passed validation but was appended
+    # as-is - the barcode payload then disagreed with
+    # display_position_code's zero-padded caption ("H-029-A"), the exact
+    # defect class Task 1 exists to close, reachable via the CSV override
+    # column that bypasses typed-input validation.
+    rows = [{"position_code": "h29a"}]
+
+    codes, _skipped = codes_from_csv_rows(rows)
+
+    assert codes == ["H029A"]
 
 
 def test_codes_from_csv_rows_uppercases_position_code_column():

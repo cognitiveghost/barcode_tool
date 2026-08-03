@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -28,7 +29,7 @@ from app.core.inventory_import import (
     items_from_csv_rows,
 )
 from app.core.position_generator import display_position_code
-from app.core.print_batch import BatchResult, print_batch
+from app.core.print_batch import BatchResult, PrintCancelled, print_batch
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
 from app.ui.csv_import_dialog import CsvImportDialog
 from app.ui.print_preview_dialog import PrintPreviewDialog
@@ -37,6 +38,10 @@ from app.ui.skipped_rows_dialog import SkippedRowsDialog
 TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
 
 _DESCRIPTION_SKU_LIMIT = 5
+
+LARGE_BATCH_THRESHOLD = 200
+_RENDER_CHUNK_SIZE = 50
+_ESTIMATED_SECONDS_PER_LABEL = 0.02
 
 
 def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
@@ -325,7 +330,10 @@ class InventoryModePanel(QWidget):
 
         generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
         records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
-        images = render_records(preset, records)
+        if len(records) > LARGE_BATCH_THRESHOLD:
+            images = self._render_with_progress(preset, records)
+        else:
+            images = render_records(preset, records)
 
         description = _describe_skus([item.sku for item in checked])
         return print_batch(
@@ -338,3 +346,33 @@ class InventoryModePanel(QWidget):
             copies=copies,
             output_pdf_path=output_pdf_path,
         )
+
+    def _render_with_progress(
+        self, preset: TemplatePreset, records: list[dict]
+    ) -> list[Image.Image]:
+        estimated_minutes = max(1, round(len(records) * _ESTIMATED_SECONDS_PER_LABEL / 60))
+        answer = QMessageBox.question(
+            self,
+            "Print a large batch?",
+            f"Render and print {len(records)} labels? This will take about "
+            f"{estimated_minutes} minute{'s' if estimated_minutes != 1 else ''}.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            raise PrintCancelled()
+
+        progress = QProgressDialog("Rendering labels...", "Cancel", 0, len(records), self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        images: list[Image.Image] = []
+        try:
+            for start in range(0, len(records), _RENDER_CHUNK_SIZE):
+                if progress.wasCanceled():
+                    raise PrintCancelled()
+                chunk = records[start : start + _RENDER_CHUNK_SIZE]
+                images.extend(render_records(preset, chunk))
+                progress.setValue(min(start + _RENDER_CHUNK_SIZE, len(records)))
+        finally:
+            progress.close()
+        return images

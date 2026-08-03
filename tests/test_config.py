@@ -7,8 +7,8 @@ from app.core.config import (
     DEFAULT_SETTINGS,
     LOGGER_NAME,
     load_settings,
-    save_settings,
     sanitize_filename_component,
+    save_settings,
     shared_folder,
 )
 

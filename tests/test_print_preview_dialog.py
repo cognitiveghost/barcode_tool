@@ -211,3 +211,18 @@ def test_navigation_failure_shows_warning_and_stays_on_the_current_page(monkeypa
     assert warnings[0][1] == "Preview failed"
     assert dialog._page_indicator.text() == "1 / 3"
     assert dialog._page_index == 0
+
+
+def test_dialog_stays_open_when_print_is_cancelled():
+    from app.core.print_batch import PrintCancelled
+
+    _app()
+
+    def _cancelled(copies, output_pdf_path):
+        raise PrintCancelled()
+
+    dialog = _dialog(on_confirm=_cancelled)
+
+    dialog._confirm(1, None)
+
+    assert dialog.result() != QDialog.DialogCode.Accepted

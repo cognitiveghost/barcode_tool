@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
@@ -14,13 +16,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.config import default_settings_path, load_settings, qsettings, shared_folder
+from app.core.config import (
+    LOGGER_NAME,
+    default_settings_path,
+    load_settings,
+    qsettings,
+    shared_folder,
+)
 from app.core.logging_setup import configure_logging
 from app.core.print_batch import prune_archive
 from app.ui.mode_inventory_panel import InventoryModePanel
 from app.ui.mode_positions_panel import PositionsModePanel
 from app.ui.settings_window import SettingsWindow
 from app.ui.theme import DEFAULT_THEME, THEMES, apply_theme
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class _ShareBanner(QWidget):
@@ -49,6 +59,7 @@ class MainWindow(QMainWindow):
         self.resize(900, 600)
 
         self._settings_path = default_settings_path()
+        configure_logging(self._settings_path.parent)
         self._settings = load_settings(self._settings_path, on_recovery=self._warn_settings_recovered)
         prune_archive(self._settings)
         configure_logging(shared_folder(self._settings))
@@ -91,7 +102,12 @@ class MainWindow(QMainWindow):
         self.menuBar().addAction(settings_action)
 
         current_theme = qsettings().value("theme", DEFAULT_THEME)
-        apply_theme(QApplication.instance(), current_theme)
+        try:
+            apply_theme(QApplication.instance(), current_theme)
+        except ValueError:
+            logger.warning("Ignoring invalid persisted theme %r, using %r", current_theme, DEFAULT_THEME)
+            current_theme = DEFAULT_THEME
+            apply_theme(QApplication.instance(), current_theme)
 
         view_menu = self.menuBar().addMenu("View")
         theme_group = QActionGroup(self)

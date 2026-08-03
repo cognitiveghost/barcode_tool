@@ -328,7 +328,7 @@ class PositionsModePanel(QWidget):
             self.generate_from_rows(dialog.get_mapped_rows())
         except GenerationCancelled:
             return
-        except ValueError as error:
+        except (ValueError, BarcodeError) as error:
             QMessageBox.warning(self, "Import failed", str(error))
 
     def _show_skipped_rows_detail(self, _href: str = "") -> None:

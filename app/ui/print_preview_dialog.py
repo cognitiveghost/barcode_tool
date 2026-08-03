@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from barcode.errors import BarcodeError
 from PIL import Image
@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from app.core.print_batch import BatchResult
+from app.core.print_batch import BatchResult, PrintCancelled
 from app.core.print_service import printer_display
 from app.core.template_renderer import TemplatePreset
 from app.core.zpl_print_service import windows_print_errors
@@ -141,6 +141,8 @@ class PrintPreviewDialog(QDialog):
     def _confirm(self, copies: int, output_pdf_path: Path | None) -> None:
         try:
             result = self._on_confirm(copies, output_pdf_path)
+        except PrintCancelled:
+            return  # operator declined/cancelled - dialog stays open, no error shown
         except (ValueError, OSError, *windows_print_errors()) as error:
             QMessageBox.warning(self, "Print failed", str(error))
             return

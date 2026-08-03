@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -24,7 +24,11 @@ from PySide6.QtWidgets import (
 
 from app.core.config import default_settings_path, qsettings, save_settings
 from app.core.csv_import import apply_mapping, read_csv
-from app.core.csv_mapping_memory import auto_map_fields, recall_mapping, remember_mapping
+from app.core.csv_mapping_memory import (
+    auto_map_fields,
+    recall_mapping,
+    remember_mapping,
+)
 
 NONE_OPTION = "-- none --"
 PREVIEW_ROW_LIMIT = 5

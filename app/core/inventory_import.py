@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.core.position_generator import SkippedRow, format_position_code, parse_position_code
+from app.core.position_generator import (
+    SkippedRow,
+    format_position_code,
+    parse_position_code,
+)
 
 INVENTORY_CSV_FIELDS = [
     ("sku", "SKU (required)"),
@@ -43,8 +47,8 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                     (row.get("number") or "").strip(),
                     (row.get("height") or "").strip(),
                 )
-            parse_position_code(position_code)
-            position_code = position_code.upper()
+            corridor, number, height = parse_position_code(position_code)
+            position_code = format_position_code(corridor, number, height)
 
             expiry = (row.get("expiry") or "").strip()
             batch = (row.get("batch") or "").strip()

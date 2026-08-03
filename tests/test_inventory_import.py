@@ -57,7 +57,7 @@ def test_items_from_csv_rows_skips_missing_sku():
 def test_items_from_csv_rows_captures_skip_reason_for_missing_sku():
     rows = [{"sku": "", "position_code": "H011A"}]
 
-    items, skipped = items_from_csv_rows(rows)
+    _items, skipped = items_from_csv_rows(rows)
 
     assert len(skipped) == 1
     assert skipped[0].row_number == 1
@@ -136,6 +136,14 @@ def test_expiry_with_slashes_is_not_split_into_a_fake_batch():
 
 def test_items_from_csv_rows_uppercases_position_code_column():
     rows = [{"sku": "SKU1", "position_code": "h011a"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].position_code == "H011A"
+
+
+def test_items_from_csv_rows_zero_pads_the_position_code_column():
+    rows = [{"sku": "SKU1", "position_code": "h11a"}]
 
     items, _skipped = items_from_csv_rows(rows)
 

@@ -2,11 +2,11 @@ import json
 from pathlib import Path
 
 import pytest
+from barcode.errors import BarcodeError
 from PIL import Image
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QProgressDialog
 
-from app.core.print_batch import BatchResult
 from app.ui.mode_positions_panel import GenerationCancelled, PositionsModePanel
 
 SETTINGS = {
@@ -395,6 +395,35 @@ def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
     panel.import_csv_button.click()
+
+    assert len(warnings) == 1
+
+
+def test_import_csv_barcode_error_shows_warning_not_a_crash(monkeypatch):
+    # generate_from_rows can raise BarcodeError (e.g. a warehouse prefix the
+    # symbology can't encode) - every sibling handler in this file already
+    # catches it, this slot was the odd one out.
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    class FakeDialog:
+        def __init__(self, fields, parent=None, **kwargs):
+            pass
+
+        def exec(self):
+            return True
+
+        def get_mapped_rows(self):
+            return []
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.CsvImportDialog", FakeDialog)
+    monkeypatch.setattr(
+        panel, "generate_from_rows", lambda rows: (_ for _ in ()).throw(BarcodeError("bad payload"))
+    )
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel._on_import_csv_clicked()  # must not raise
 
     assert len(warnings) == 1
 

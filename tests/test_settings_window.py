@@ -173,3 +173,57 @@ def test_every_field_has_a_visible_label():
     assert "Printer" in labels
     assert "Print mode" in labels
     assert "Raw ZPL target" in labels
+
+
+def test_save_and_close_shows_warning_on_oserror(monkeypatch, tmp_path):
+    _app()
+    window = SettingsWindow(DEFAULT_SETTINGS, settings_path=tmp_path / "settings.json")
+    monkeypatch.setattr(
+        "app.ui.settings_window.save_settings",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    warned = []
+    monkeypatch.setattr(
+        "app.ui.settings_window.QMessageBox.warning",
+        staticmethod(lambda *a, **k: warned.append(a[2]) or QMessageBox.StandardButton.Ok),
+    )
+
+    window._save_and_close()  # must not raise
+
+    assert warned
+
+
+def test_consolidate_audit_log_shows_warning_on_oserror(monkeypatch, tmp_path):
+    _app()
+    window = SettingsWindow(DEFAULT_SETTINGS, settings_path=tmp_path / "settings.json")
+    monkeypatch.setattr(
+        "app.ui.settings_window.consolidate_audit_log",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("network path not found")),
+    )
+    warned = []
+    monkeypatch.setattr(
+        "app.ui.settings_window.QMessageBox.warning",
+        staticmethod(lambda *a, **k: warned.append(a[2]) or QMessageBox.StandardButton.Ok),
+    )
+
+    window._consolidate_audit_log()  # must not raise
+
+    assert warned
+
+
+def test_open_log_folder_shows_warning_on_oserror(monkeypatch, tmp_path):
+    _app()
+    window = SettingsWindow(DEFAULT_SETTINGS, settings_path=tmp_path / "settings.json")
+    monkeypatch.setattr(
+        "pathlib.Path.mkdir",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("permission denied")),
+    )
+    warned = []
+    monkeypatch.setattr(
+        "app.ui.settings_window.QMessageBox.warning",
+        staticmethod(lambda *a, **k: warned.append(a[2]) or QMessageBox.StandardButton.Ok),
+    )
+
+    window._open_log_folder()  # must not raise
+
+    assert warned

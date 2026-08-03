@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +27,13 @@ class BatchResult:
     count: int
     archive_path: Path | None
     warnings: list[str] = field(default_factory=list)
+
+
+class PrintCancelled(Exception):
+    """Raised by an on_confirm callback (see PrintPreviewDialog) when the
+    operator declines a large-batch confirmation or cancels mid-render.
+    Caught silently by PrintPreviewDialog - cancelling is a deliberate
+    action, not an error to report."""
 
 
 def print_batch(

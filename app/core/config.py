@@ -65,7 +65,7 @@ def load_settings(path: Path, on_recovery: Callable[[str], None] | None = None) 
         with path.open("r", encoding="utf-8") as f:
             loaded = json.load(f)
         if not isinstance(loaded, dict):
-            raise ValueError(f"{path.name} does not contain a JSON object")
+            raise ValueError(f"{path.name} does not contain a JSON object")  # noqa: TRY004 (see except (OSError, ValueError) below)
     except (OSError, ValueError) as error:
         corrupt_path = path.with_name(path.name + ".corrupt")
         try:

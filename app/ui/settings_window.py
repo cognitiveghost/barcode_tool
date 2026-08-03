@@ -131,7 +131,11 @@ class SettingsWindow(QDialog):
 
     def _consolidate_audit_log(self) -> None:
         shared_folder = self.shared_folder_edit.text() or str(default_settings_path().parent)
-        merged = consolidate_audit_log(Path(shared_folder))
+        try:
+            merged = consolidate_audit_log(Path(shared_folder))
+        except OSError as error:
+            QMessageBox.warning(self, "Consolidate failed", str(error))
+            return
         if merged:
             QMessageBox.information(
                 self, "Audit log consolidated", f"Merged {merged} row(s) into audit_log.csv."
@@ -144,7 +148,11 @@ class SettingsWindow(QDialog):
     def _open_log_folder(self) -> None:
         shared = self.shared_folder_edit.text() or str(default_settings_path().parent)
         log_dir = Path(shared) / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            QMessageBox.warning(self, "Cannot open log folder", str(error))
+            return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir)))
 
     def _add_warehouse_row(self, name: str, prefix: str) -> None:
@@ -202,7 +210,11 @@ class SettingsWindow(QDialog):
         if self._settings_path is None:
             QMessageBox.warning(self, "Cannot save", "No settings file location configured.")
             return
-        full_settings = load_settings(self._settings_path)
-        full_settings.update(self.get_current_settings())
-        save_settings(self._settings_path, full_settings)
+        try:
+            full_settings = load_settings(self._settings_path)
+            full_settings.update(self.get_current_settings())
+            save_settings(self._settings_path, full_settings)
+        except OSError as error:
+            QMessageBox.warning(self, "Cannot save", str(error))
+            return
         self.accept()

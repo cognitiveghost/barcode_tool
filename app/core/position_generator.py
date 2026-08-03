@@ -76,8 +76,8 @@ def codes_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[str], list[Ski
         position_code = (row.get("position_code") or "").strip()
         try:
             if position_code:
-                parse_position_code(position_code)  # raises ValueError if malformed
-                codes.append(position_code.upper())
+                corridor, number, height = parse_position_code(position_code)
+                codes.append(format_position_code(corridor, number, height))
             else:
                 corridor = (row.get("corridor") or "").strip()
                 number = (row.get("number") or "").strip()

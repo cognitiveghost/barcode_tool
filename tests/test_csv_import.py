@@ -96,7 +96,7 @@ def test_read_csv_strips_utf8_bom(tmp_path):
 def test_read_csv_detects_semicolon_delimiter(tmp_path):
     path = tmp_path / "semicolon.csv"
     path.write_bytes(
-        "sku;name;position\r\nSKU1;Widget;H011A\r\n".encode("utf-8")
+        b"sku;name;position\r\nSKU1;Widget;H011A\r\n"
     )
 
     header, rows, delimiter, _encoding = read_csv(path)
@@ -108,9 +108,9 @@ def test_read_csv_detects_semicolon_delimiter(tmp_path):
 
 def test_read_csv_detects_tab_delimiter(tmp_path):
     path = tmp_path / "tabbed.csv"
-    path.write_bytes("sku\tname\r\nSKU1\tWidget\r\n".encode("utf-8"))
+    path.write_bytes(b"sku\tname\r\nSKU1\tWidget\r\n")
 
-    header, rows, delimiter, _encoding = read_csv(path)
+    header, _rows, delimiter, _encoding = read_csv(path)
 
     assert delimiter == "\t"
     assert header == ["sku", "name"]
@@ -120,7 +120,7 @@ def test_read_csv_defaults_to_comma_when_sniffing_is_ambiguous(tmp_path):
     path = tmp_path / "single_column.csv"
     path.write_bytes(b"onlycolumn\r\nvalue1\r\nvalue2\r\n")
 
-    header, rows, delimiter, _encoding = read_csv(path)
+    header, _rows, delimiter, _encoding = read_csv(path)
 
     assert delimiter == ","
     assert header == ["onlycolumn"]
@@ -132,7 +132,7 @@ def test_read_csv_explicit_delimiter_overrides_detection(tmp_path):
     path = tmp_path / "positions.csv"
     path.write_bytes(b"sku,name\r\nSKU1,Widget\r\n")
 
-    header, rows, delimiter, _encoding = read_csv(path, delimiter=";")
+    header, _rows, delimiter, _encoding = read_csv(path, delimiter=";")
 
     assert delimiter == ";"
     assert header == ["sku,name"]  # the whole line is one column now
@@ -170,7 +170,7 @@ def test_read_csv_explicit_encoding_overrides_detection(tmp_path):
     path = tmp_path / "cyrillic.csv"
     path.write_bytes("sku,client\r\nSKU1,Клиент\r\n".encode("cp1251"))
 
-    header, rows, _delimiter, encoding = read_csv(path, encoding="cp1251")
+    _header, rows, _delimiter, encoding = read_csv(path, encoding="cp1251")
 
     assert encoding == "cp1251"
     assert rows == [["SKU1", "Клиент"]]

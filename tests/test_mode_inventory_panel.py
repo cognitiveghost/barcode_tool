@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.core import print_service
-from app.core.print_batch import BatchResult
+from app.core.print_batch import BatchResult, PrintCancelled
 from app.ui.mode_inventory_panel import (
     TABLE_COLUMNS,
     InventoryModePanel,
@@ -709,3 +709,58 @@ def test_print_button_disabled_until_a_row_is_checked():
     panel._set_all_checked(False)
 
     assert not panel.print_button.isEnabled()
+
+
+def test_print_checked_items_large_batch_renders_in_pinned_chunks(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(250)])
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.render_records",
+        lambda preset, records: render_calls.append(len(records)) or [f"img{i}" for i in range(len(records))],
+    )
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QMessageBox.question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.print_batch",
+        lambda *a, **k: BatchResult(count=250, archive_path=None),
+    )
+
+    panel.print_checked_items()
+
+    assert render_calls == [50, 50, 50, 50, 50]
+
+
+def test_declining_the_large_batch_confirmation_raises_print_cancelled(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(250)])
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QMessageBox.question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
+    )
+
+    with pytest.raises(PrintCancelled):
+        panel.print_checked_items()
+
+
+def test_small_batch_does_not_go_through_the_progress_path(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QMessageBox.question",
+        staticmethod(lambda *a, **k: calls.append(True)),
+    )
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.print_batch",
+        lambda *a, **k: BatchResult(count=1, archive_path=None),
+    )
+
+    panel.print_checked_items()
+
+    assert calls == []  # confirmation dialog never shown for a small batch
