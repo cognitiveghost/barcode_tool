@@ -2,10 +2,11 @@ import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PIL import Image
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QProgressDialog
 
 from app.core.print_batch import BatchResult
-from app.ui.mode_positions_panel import PositionsModePanel
+from app.ui.mode_positions_panel import GenerationCancelled, PositionsModePanel
 
 SETTINGS = {
     "warehouses": [{"name": "Main", "prefix": "C001"}],
@@ -556,3 +557,202 @@ def test_height_checkbox_is_gone():
     panel = PositionsModePanel(SETTINGS)
 
     assert not hasattr(panel, "height_enabled_check")
+
+
+def test_count_label_updates_as_fields_change():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("031")
+
+    assert panel.count_label.text() == "-> 3 labels"
+
+
+def test_count_label_uses_singular_for_one_label():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+
+    assert panel.count_label.text() == "-> 1 label"
+
+
+def test_count_label_is_empty_for_incomplete_input():
+    _app()
+    panel = PositionsModePanel(SETTINGS)
+
+    panel.number_from_edit.setText("029")  # no corridor yet
+
+    assert panel.count_label.text() == ""
+
+
+def test_small_batch_does_not_prompt_for_confirmation(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+
+    questions = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: questions.append(a)))
+
+    results = panel.generate()
+
+    assert questions == []
+    assert len(results) == 2
+
+
+def test_large_batch_prompts_and_renders_in_chunks(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")  # 250 codes, > LARGE_BATCH_THRESHOLD (200)
+
+    render_calls = []
+
+    def _fake_render(preset, records, **kwargs):
+        render_calls.append(len(records))
+        return [Image.new("RGB", (10, 10)) for _ in records]
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", _fake_render)
+    questions = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (questions.append(a), QMessageBox.StandardButton.Yes)[1]),
+    )
+
+    results = panel.generate()
+
+    assert len(questions) == 1
+    assert len(results) == 250
+    assert sum(render_calls) == 250
+    assert len(render_calls) > 1  # rendered in more than one chunk, not one bulk call
+
+
+def test_confirmation_message_shows_the_count_and_a_time_estimate(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: [Image.new("RGB", (10, 10)) for _ in records],
+    )
+    questions = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (questions.append(a), QMessageBox.StandardButton.Yes)[1]),
+    )
+
+    panel.generate()
+
+    assert "250 labels" in questions[0][2]
+    assert "minute" in questions[0][2]
+
+
+def test_declining_the_large_batch_confirmation_raises_generation_cancelled(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: (render_calls.append(records), [])[1],
+    )
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+
+    with pytest.raises(GenerationCancelled):
+        panel.generate()
+
+    assert render_calls == []
+
+
+def test_on_generate_clicked_is_silent_when_the_large_batch_is_declined(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", lambda preset, records, **k: [])
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel._on_generate_clicked()  # must not raise, must not warn
+
+    assert warnings == []
+
+
+def test_progress_dialog_cancel_stops_rendering_after_the_current_chunk(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("249")
+
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: (
+            render_calls.append(records), [Image.new("RGB", (10, 10)) for _ in records]
+        )[1],
+    )
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+
+    call_count = [0]
+
+    def _fake_was_canceled(self):
+        call_count[0] += 1
+        return call_count[0] > 1  # cancel is reported starting on the second check
+
+    monkeypatch.setattr(QProgressDialog, "wasCanceled", _fake_was_canceled)
+
+    with pytest.raises(GenerationCancelled):
+        panel.generate()
+
+    assert len(render_calls) == 1  # only the first chunk rendered before cancel
+
+
+def test_generate_from_rows_also_uses_the_large_batch_path(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    rows = [{"corridor": "H", "number": f"{i:03d}", "height": ""} for i in range(250)]
+
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.render_records",
+        lambda preset, records, **k: [Image.new("RGB", (10, 10)) for _ in records],
+    )
+    questions = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (questions.append(a), QMessageBox.StandardButton.Yes)[1]),
+    )
+
+    results = panel.generate_from_rows(rows)
+
+    assert len(questions) == 1
+    assert len(results) == 250

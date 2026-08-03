@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -36,6 +37,16 @@ POSITION_CSV_FIELDS = [
     ("number", "Number"),
     ("height", "Height (optional)"),
 ]
+
+LARGE_BATCH_THRESHOLD = 200
+_RENDER_CHUNK_SIZE = 50
+_ESTIMATED_SECONDS_PER_LABEL = 0.02
+
+
+class GenerationCancelled(Exception):
+    """Raised when the operator declines the large-batch confirmation or
+    cancels mid-render. Caught silently at both call sites - cancelling is
+    an expected, deliberate action, not an error to report."""
 
 
 def _validate_position_mapping(mapping: dict[str, int | None]) -> str | None:
@@ -69,6 +80,8 @@ class PositionsModePanel(QWidget):
         self.height_to_edit = QLineEdit()
         self.height_to_edit.setInputMask(">a")
 
+        self.count_label = QLabel("")
+
         self.custom_text_edit = QLineEdit()
 
         self.preset_combo = QComboBox()
@@ -93,6 +106,7 @@ class PositionsModePanel(QWidget):
         form.addRow("Number to", self.number_to_edit)
         form.addRow("Height from", self.height_from_edit)
         form.addRow("Height to", self.height_to_edit)
+        form.addRow("Count", self.count_label)
         form.addRow("Custom text", self.custom_text_edit)
         form.addRow("Template", self.preset_combo)
 
@@ -102,6 +116,16 @@ class PositionsModePanel(QWidget):
         layout.addWidget(self.import_csv_button)
         layout.addWidget(self.result_label)
         layout.addWidget(self.print_button)
+
+        for edit in (
+            self.corridor_edit,
+            self.number_from_edit,
+            self.number_to_edit,
+            self.height_from_edit,
+            self.height_to_edit,
+        ):
+            edit.textChanged.connect(self._update_count_preview)
+        self._update_count_preview()
 
     def refresh_from_settings(self, settings: dict) -> None:
         self._settings = settings
@@ -130,6 +154,8 @@ class PositionsModePanel(QWidget):
     def _on_generate_clicked(self) -> None:
         try:
             self.generate()
+        except GenerationCancelled:
+            return
         except (ValueError, BarcodeError) as error:
             QMessageBox.warning(self, "Invalid range", str(error))
 
@@ -211,13 +237,61 @@ class PositionsModePanel(QWidget):
             }
             for code in codes
         ]
-        images = render_records(preset, records)
+        if len(records) > LARGE_BATCH_THRESHOLD:
+            images = self._render_with_progress(preset, records)
+        else:
+            images = render_records(preset, records)
         results = list(zip(codes, images))
 
         self.generated_codes = codes
         self.generated_labels = images
         self._generated_preset = preset
         return results
+
+    def _render_with_progress(
+        self, preset: TemplatePreset, records: list[dict]
+    ) -> list[Image.Image]:
+        estimated_minutes = max(1, round(len(records) * _ESTIMATED_SECONDS_PER_LABEL / 60))
+        answer = QMessageBox.question(
+            self,
+            "Generate a large batch?",
+            f"Generate {len(records)} labels? This will take about "
+            f"{estimated_minutes} minute{'s' if estimated_minutes != 1 else ''}.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            raise GenerationCancelled()
+
+        progress = QProgressDialog("Rendering labels...", "Cancel", 0, len(records), self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        images: list[Image.Image] = []
+        try:
+            for start in range(0, len(records), _RENDER_CHUNK_SIZE):
+                if progress.wasCanceled():
+                    raise GenerationCancelled()
+                chunk = records[start : start + _RENDER_CHUNK_SIZE]
+                images.extend(render_records(preset, chunk))
+                progress.setValue(min(start + _RENDER_CHUNK_SIZE, len(records)))
+        finally:
+            progress.close()
+        return images
+
+    def _update_count_preview(self) -> None:
+        try:
+            codes = generate_position_codes(
+                self.corridor_edit.text(),
+                self.number_from_edit.text(),
+                self.number_to_edit.text() or None,
+                self.height_from_edit.text() or None,
+                self.height_to_edit.text() or None,
+            )
+        except ValueError:
+            self.count_label.setText("")
+            return
+        unit = "label" if len(codes) == 1 else "labels"
+        self.count_label.setText(f"-> {len(codes)} {unit}")
 
     def _on_import_csv_clicked(self) -> None:
         dialog = CsvImportDialog(
@@ -232,6 +306,8 @@ class PositionsModePanel(QWidget):
             return
         try:
             self.generate_from_rows(dialog.get_mapped_rows())
+        except GenerationCancelled:
+            return
         except ValueError as error:
             QMessageBox.warning(self, "Import failed", str(error))
 
