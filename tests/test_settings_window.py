@@ -1,5 +1,5 @@
 from PySide6.QtPrintSupport import QPrinterInfo
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from app.core.config import DEFAULT_SETTINGS, load_settings
 from app.ui.settings_window import SettingsWindow
@@ -105,3 +105,55 @@ def test_consolidate_audit_log_button_reports_merged_count(monkeypatch, tmp_path
 
     assert len(messages) == 1
     assert "1" in messages[0][2]
+
+
+def test_raw_zpl_mode_requires_a_target():
+    # An empty target reached Path("").write_bytes and surfaced as a cryptic
+    # OS error at print time instead of here.
+    _app()
+    window = SettingsWindow({}, None)
+    window.print_mode_combo.setCurrentIndex(window.print_mode_combo.findData("raw_zpl"))
+    window.raw_zpl_target_edit.setText("")
+
+    assert "target" in window.validation_error().lower()
+
+
+def test_driver_mode_does_not_require_a_zpl_target():
+    _app()
+    window = SettingsWindow({}, None)
+    window.print_mode_combo.setCurrentIndex(window.print_mode_combo.findData("driver"))
+
+    assert window.validation_error() is None
+
+
+def test_duplicate_warehouse_prefixes_are_rejected():
+    _app()
+    window = SettingsWindow(
+        {
+            "warehouses": [
+                {"name": "Main", "prefix": "C001"},
+                {"name": "Spare", "prefix": "C001"},
+            ]
+        },
+        None,
+    )
+
+    assert "prefix" in window.validation_error().lower()
+
+
+def test_warehouse_with_an_empty_name_is_rejected():
+    _app()
+    window = SettingsWindow({"warehouses": [{"name": "", "prefix": "C001"}]}, None)
+
+    assert "name" in window.validation_error().lower()
+
+
+def test_every_field_has_a_visible_label():
+    _app()
+    window = SettingsWindow({}, None)
+
+    labels = {label.text() for label in window.findChildren(QLabel)}
+    assert "Shared folder" in labels
+    assert "Printer" in labels
+    assert "Print mode" in labels
+    assert "Raw ZPL target" in labels
