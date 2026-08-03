@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0
+      - run: pip install -r requirements.txt
+      - run: pytest -v
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Pango/GTK runtime (MSYS2)
+        shell: cmd
+        run: |
+          C:\msys64\usr\bin\pacman.exe -S --noconfirm --needed mingw-w64-x86_64-pango
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Build with PyInstaller
+        run: >
+          pyinstaller --name BarcodeTool --onedir --noconfirm
+          --add-data "app/templates/examples;app/templates/examples"
+          --add-data "app/assets/fonts;app/assets/fonts"
+          --collect-data blabel
+          app/main.py
+      - name: Bundle GTK DLLs
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Path "C:\msys64\mingw64\bin" -Destination "dist\BarcodeTool\gtk-dlls"
+      - name: Zip artifact
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\BarcodeTool\*" -DestinationPath "BarcodeTool-windows-${{ github.event.release.tag_name }}.zip"
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "BarcodeTool-windows-${{ github.event.release.tag_name }}.zip" --clobber
+
+  build-linux:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Build with PyInstaller
+        run: >
+          pyinstaller --name BarcodeTool --onedir --noconfirm
+          --add-data "app/templates/examples:app/templates/examples"
+          --add-data "app/assets/fonts:app/assets/fonts"
+          --collect-data blabel
+          app/main.py
+      - name: Tar artifact
+        run: tar -czf "BarcodeTool-linux-${{ github.event.release.tag_name }}.tar.gz" -C dist BarcodeTool
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "BarcodeTool-linux-${{ github.event.release.tag_name }}.tar.gz" --clobber
