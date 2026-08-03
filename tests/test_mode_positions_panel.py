@@ -169,6 +169,28 @@ def test_print_button_click_opens_preview_dialog_wired_to_print_current_labels(m
     assert calls[0]["render_page"](0) is panel.generated_labels[0]
 
 
+def test_print_button_shows_warning_when_preview_dialog_construction_fails(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.generate()
+
+    def _boom(*a, **k):
+        raise ValueError("boom")
+
+    monkeypatch.setattr("app.ui.mode_positions_panel.PrintPreviewDialog", _boom)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()  # must not raise
+
+    assert len(warnings) == 1
+    assert warnings[0][1] == "Print failed"
+
+
 def test_print_button_click_without_generated_labels_shows_warning(monkeypatch):
     _app()
     panel = PositionsModePanel(SETTINGS)

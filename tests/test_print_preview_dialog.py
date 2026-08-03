@@ -167,3 +167,47 @@ def test_summary_shows_batch_details():
     assert "Test preset" in text
     assert "Main" in text
     assert "HP-1" in text
+
+
+def test_construction_failure_propagates_instead_of_opening_a_broken_dialog():
+    _app()
+
+    def _boom(index):
+        raise ValueError("template mismatch")
+
+    with pytest.raises(ValueError):
+        PrintPreviewDialog(
+            count=3,
+            render_page=_boom,
+            preset=_preset(),
+            settings={},
+            warehouse_display="Main",
+            on_confirm=lambda copies, path: BatchResult(count=1, archive_path=None),
+        )
+
+
+def test_navigation_failure_shows_warning_and_stays_on_the_current_page(monkeypatch):
+    _app()
+
+    def render_page(index):
+        if index == 1:
+            raise ValueError("boom")
+        return Image.new("RGB", (10, 10))
+
+    dialog = PrintPreviewDialog(
+        count=3,
+        render_page=render_page,
+        preset=_preset(),
+        settings={},
+        warehouse_display="Main",
+        on_confirm=lambda copies, path: BatchResult(count=1, archive_path=None),
+    )
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    dialog._next_button.click()
+
+    assert len(warnings) == 1
+    assert warnings[0][1] == "Preview failed"
+    assert dialog._page_indicator.text() == "1 / 3"
+    assert dialog._page_index == 0

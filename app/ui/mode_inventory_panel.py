@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from barcode.errors import BarcodeError
 from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -230,15 +231,19 @@ class InventoryModePanel(QWidget):
             record = _record_for_item(checked[index], warehouse_prefix, generated_date)
             return render_records(preset, [record])[0]
 
-        dialog = PrintPreviewDialog(
-            count=len(checked),
-            render_page=render_page,
-            preset=preset,
-            settings=self._settings,
-            warehouse_display=self.warehouse_combo.currentText(),
-            on_confirm=self.print_checked_items,
-            parent=self,
-        )
+        try:
+            dialog = PrintPreviewDialog(
+                count=len(checked),
+                render_page=render_page,
+                preset=preset,
+                settings=self._settings,
+                warehouse_display=self.warehouse_combo.currentText(),
+                on_confirm=self.print_checked_items,
+                parent=self,
+            )
+        except (ValueError, OSError, BarcodeError) as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+            return
         dialog.exec()
 
     def print_checked_items(

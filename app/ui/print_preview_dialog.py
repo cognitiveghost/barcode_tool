@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from barcode.errors import BarcodeError
 from PIL import Image
 from PIL.ImageQt import ImageQt
 from PySide6.QtCore import Qt
@@ -104,8 +105,8 @@ class PrintPreviewDialog(QDialog):
         self._show_page(0)
 
     def _show_page(self, index: int) -> None:
-        self._page_index = index
         image = self._render_page(index)
+        self._page_index = index
         pixmap = QPixmap.fromImage(ImageQt(image)).scaled(
             PREVIEW_BOX_SIZE,
             PREVIEW_BOX_SIZE,
@@ -119,11 +120,17 @@ class PrintPreviewDialog(QDialog):
 
     def _show_previous_page(self) -> None:
         if self._page_index > 0:
-            self._show_page(self._page_index - 1)
+            self._show_page_safely(self._page_index - 1)
 
     def _show_next_page(self) -> None:
         if self._page_index < self._count - 1:
-            self._show_page(self._page_index + 1)
+            self._show_page_safely(self._page_index + 1)
+
+    def _show_page_safely(self, index: int) -> None:
+        try:
+            self._show_page(index)
+        except (ValueError, OSError, BarcodeError) as error:
+            QMessageBox.warning(self, "Preview failed", str(error))
 
     def _on_print_clicked(self) -> None:
         self._confirm(self._copies_spin.value(), None)

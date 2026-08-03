@@ -137,15 +137,19 @@ class PositionsModePanel(QWidget):
         if not self.generated_labels:
             QMessageBox.warning(self, "Print failed", "Nothing to print - generate labels first")
             return
-        dialog = PrintPreviewDialog(
-            count=len(self.generated_labels),
-            render_page=lambda index: self.generated_labels[index],
-            preset=self._generated_preset,
-            settings=self._settings,
-            warehouse_display=self.warehouse_combo.currentText(),
-            on_confirm=self.print_current_labels,
-            parent=self,
-        )
+        try:
+            dialog = PrintPreviewDialog(
+                count=len(self.generated_labels),
+                render_page=lambda index: self.generated_labels[index],
+                preset=self._generated_preset,
+                settings=self._settings,
+                warehouse_display=self.warehouse_combo.currentText(),
+                on_confirm=self.print_current_labels,
+                parent=self,
+            )
+        except (ValueError, OSError, BarcodeError) as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+            return
         dialog.exec()
 
     def generate(self) -> list[tuple[str, Image.Image]]:

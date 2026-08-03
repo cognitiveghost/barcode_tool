@@ -485,6 +485,26 @@ def test_print_button_click_opens_preview_dialog_wired_to_print_checked_items(mo
     assert calls[0]["on_confirm"] == panel.print_checked_items
 
 
+def test_print_button_shows_warning_when_preview_dialog_construction_fails(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    def _boom(*a, **k):
+        raise ValueError("boom")
+
+    monkeypatch.setattr("app.ui.mode_inventory_panel.PrintPreviewDialog", _boom)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.print_button.click()  # must not raise
+
+    assert len(warnings) == 1
+    assert warnings[0][1] == "Print failed"
+
+
 def test_print_button_click_without_items_shows_warning(monkeypatch):
     _app()
     panel = InventoryModePanel(SETTINGS)
