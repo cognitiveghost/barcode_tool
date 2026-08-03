@@ -4,8 +4,8 @@ from pathlib import Path
 
 from barcode.errors import BarcodeError
 from PIL import Image
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIntValidator
+from PySide6.QtCore import QRegularExpression, Qt
+from PySide6.QtGui import QIntValidator, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -30,6 +30,23 @@ from app.core.template_renderer import TemplatePreset, list_presets, render_reco
 from app.ui.csv_import_dialog import CsvImportDialog
 from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
+
+# A Qt input mask (setInputMask) filters keystrokes in a code path that does
+# not reliably see input delivered via IME/TSF - the norm on Windows for
+# non-US keyboard layouts - so the corridor/height boxes could silently
+# reject every real keypress while still working fine in tests (which
+# inject synthetic key events that bypass IME entirely). A validator goes
+# through QLineEdit's normal insert path instead, which both routes see.
+_LETTER_VALIDATOR = QRegularExpressionValidator(QRegularExpression("[A-Za-z]"))
+
+
+def _uppercase_as_typed(edit: QLineEdit) -> None:
+    def _apply(text: str) -> None:
+        if text != text.upper():
+            edit.setText(text.upper())
+
+    edit.textChanged.connect(_apply)
+
 
 POSITION_CSV_FIELDS = [
     ("position_code", "Position code (overrides corridor/number/height)"),
@@ -68,7 +85,9 @@ class PositionsModePanel(QWidget):
 
         self.warehouse_combo = QComboBox()
         self.corridor_edit = QLineEdit()
-        self.corridor_edit.setInputMask(">a")
+        self.corridor_edit.setMaxLength(1)
+        self.corridor_edit.setValidator(_LETTER_VALIDATOR)
+        _uppercase_as_typed(self.corridor_edit)
         self.number_from_edit = QLineEdit()
         self.number_from_edit.setValidator(QIntValidator(0, NUMBER_MAX, self))
         self.number_to_edit = QLineEdit()
@@ -76,9 +95,13 @@ class PositionsModePanel(QWidget):
         self.number_to_edit.setPlaceholderText("same as from (optional)")
 
         self.height_from_edit = QLineEdit()
-        self.height_from_edit.setInputMask(">a")
+        self.height_from_edit.setMaxLength(1)
+        self.height_from_edit.setValidator(_LETTER_VALIDATOR)
+        _uppercase_as_typed(self.height_from_edit)
         self.height_to_edit = QLineEdit()
-        self.height_to_edit.setInputMask(">a")
+        self.height_to_edit.setMaxLength(1)
+        self.height_to_edit.setValidator(_LETTER_VALIDATOR)
+        _uppercase_as_typed(self.height_to_edit)
 
         self.count_label = QLabel("")
 
