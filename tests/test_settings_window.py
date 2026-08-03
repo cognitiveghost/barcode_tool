@@ -91,7 +91,8 @@ def test_consolidate_audit_log_button_reports_merged_count(monkeypatch, tmp_path
     _app()
     from app.core.audit_log import append_print_log
 
-    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H029")
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H029",
+                      preset="Standard", printer="HP-1")
 
     settings = {**DEFAULT_SETTINGS, "shared_folder": str(tmp_path)}
     window = SettingsWindow(settings, settings_path=None)
@@ -105,6 +106,21 @@ def test_consolidate_audit_log_button_reports_merged_count(monkeypatch, tmp_path
 
     assert len(messages) == 1
     assert "1" in messages[0][2]
+
+
+def test_open_log_folder_creates_the_directory_if_missing(monkeypatch, tmp_path):
+    _app()
+    settings = {**DEFAULT_SETTINGS, "shared_folder": str(tmp_path)}
+    window = SettingsWindow(settings, settings_path=None)
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.settings_window.QDesktopServices.openUrl", lambda url: calls.append(url)
+    )
+
+    window._open_log_folder()
+
+    assert (tmp_path / "logs").is_dir()
+    assert len(calls) == 1
 
 
 def test_raw_zpl_mode_requires_a_target():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from collections.abc import Callable
@@ -17,6 +18,8 @@ DEFAULT_SETTINGS = {
     "csv_mappings": {},
     "archive_retention_days": 90,
 }
+
+LOGGER_NAME = "barcode_tool"
 
 _UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -69,12 +72,14 @@ def load_settings(path: Path, on_recovery: Callable[[str], None] | None = None) 
             path.replace(corrupt_path)
         except OSError:
             pass
+        message = (
+            f"{path.name} could not be read ({error}) and has been reset "
+            f"to defaults. The previous file was saved as "
+            f"{corrupt_path.name}."
+        )
+        logging.getLogger(LOGGER_NAME).warning(message)
         if on_recovery is not None:
-            on_recovery(
-                f"{path.name} could not be read ({error}) and has been reset "
-                f"to defaults. The previous file was saved as "
-                f"{corrupt_path.name}."
-            )
+            on_recovery(message)
         return settings
 
     settings.update(loaded)

@@ -55,6 +55,14 @@ def print_labels(
     painter.end()
 
 
+def printer_display(settings: dict) -> str:
+    return (
+        settings.get("raw_zpl_target")
+        if settings.get("print_mode") == "raw_zpl"
+        else settings.get("default_printer")
+    ) or "(system default)"
+
+
 def send_to_printer(
     images: list[Image.Image],
     width_mm: float,

@@ -135,7 +135,7 @@ def test_print_current_labels_writes_pdf_and_log(tmp_path):
     assert len(audit_files) == 1
     log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
     assert len(log_lines) == 2  # header + one entry
-    assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030"]
+    assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030", "Default 150x100mm", "(system default)"]
 
 
 def test_generate_without_preset_raises_value_error(monkeypatch, tmp_path):

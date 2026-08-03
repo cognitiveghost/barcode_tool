@@ -1,11 +1,29 @@
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from app.core.config import LOGGER_NAME
 from app.core.print_batch import BatchResult, print_batch, prune_archive
 from app.core.template_renderer import TemplatePreset
+
+
+@pytest.fixture
+def log_records():
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.addHandler(handler)
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
 
 
 def _preset() -> TemplatePreset:
@@ -164,6 +182,46 @@ def test_both_archive_and_audit_failing_reports_both_warnings(monkeypatch, tmp_p
                           warehouse_prefix="C001", description="H029")
 
     assert len(result.warnings) == 2
+
+
+def test_successful_print_logs_a_line_with_parameters(monkeypatch, tmp_path, log_records):
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda images, **kwargs: None)
+
+    print_batch(["img1"], _preset(), _settings(tmp_path), mode="positions",
+                warehouse_prefix="C001", description="H029")
+
+    message = next(r.getMessage() for r in log_records if "Print requested" in r.getMessage())
+    assert "Test" in message  # preset name
+    assert "positions" in message
+    assert "C001" in message
+
+
+def test_print_failure_is_logged_and_still_raises(monkeypatch, tmp_path, log_records):
+    def _boom(images, **kwargs):
+        raise OSError("printer offline")
+
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _boom)
+
+    with pytest.raises(OSError, match="printer offline"):
+        print_batch(["img1"], _preset(), _settings(tmp_path), mode="positions",
+                     warehouse_prefix="C001", description="H029")
+
+    assert any("Print failed" in r.getMessage() for r in log_records)
+
+
+def test_print_batch_passes_preset_name_and_printer_to_the_audit_log(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda images, **kwargs: None)
+    captured = {}
+    monkeypatch.setattr(
+        "app.core.print_batch.append_print_log",
+        lambda *args, **kwargs: captured.update(kwargs),
+    )
+
+    print_batch(["img1"], _preset(), _settings(tmp_path), mode="positions",
+                warehouse_prefix="C001", description="H029")
+
+    assert captured["preset"] == "Test"
+    assert captured["printer"] == "(system default)"
 
 
 def _make_archive_file(base: Path, month: str, filename: str, age_days: int) -> Path:

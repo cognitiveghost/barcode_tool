@@ -1,12 +1,32 @@
 import json
+import logging
+
+import pytest
 
 from app.core.config import (
     DEFAULT_SETTINGS,
+    LOGGER_NAME,
     load_settings,
     save_settings,
     sanitize_filename_component,
     shared_folder,
 )
+
+
+@pytest.fixture
+def log_records():
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.addHandler(handler)
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
 
 
 def test_load_settings_returns_defaults_when_missing(tmp_path):
@@ -99,3 +119,12 @@ def test_sanitize_filename_component_replaces_unsafe_characters():
     # Both the comma and the space are unsafe (the regex only allows
     # [A-Za-z0-9_.-]), so each becomes its own underscore.
     assert sanitize_filename_component("SKU1, SKU2") == "SKU1__SKU2"
+
+
+def test_corrupted_settings_load_logs_a_warning(log_records, tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text("{not valid json", encoding="utf-8")
+
+    load_settings(path)
+
+    assert any("could not be read" in r.getMessage() for r in log_records)

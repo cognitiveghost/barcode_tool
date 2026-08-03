@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtPrintSupport import QPrinterInfo
 from PySide6.QtWidgets import (
     QComboBox,
@@ -41,6 +43,9 @@ class SettingsWindow(QDialog):
 
         consolidate_button = QPushButton("Consolidate audit log")
         consolidate_button.clicked.connect(self._consolidate_audit_log)
+
+        open_log_folder_button = QPushButton("Open log folder")
+        open_log_folder_button.clicked.connect(self._open_log_folder)
 
         self.printer_combo = QComboBox()
         printer_names = [p.printerName() for p in QPrinterInfo.availablePrinters()]
@@ -91,6 +96,7 @@ class SettingsWindow(QDialog):
         storage_layout = QVBoxLayout()
         storage_layout.addLayout(storage_form)
         storage_layout.addWidget(consolidate_button)
+        storage_layout.addWidget(open_log_folder_button)
         storage_box = QGroupBox("Storage")
         storage_box.setLayout(storage_layout)
 
@@ -134,6 +140,12 @@ class SettingsWindow(QDialog):
             QMessageBox.information(
                 self, "Audit log consolidated", "No per-print audit files found to merge."
             )
+
+    def _open_log_folder(self) -> None:
+        shared = self.shared_folder_edit.text() or str(default_settings_path().parent)
+        log_dir = Path(shared) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir)))
 
     def _add_warehouse_row(self, name: str, prefix: str) -> None:
         row = self.warehouse_table.rowCount()

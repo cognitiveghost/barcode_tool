@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from blabel import LabelWriter
 from PIL import Image
 
 from app.core import label_tools
-from app.core.config import atomic_write_text
+from app.core.config import LOGGER_NAME, atomic_write_text
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "templates" / "examples"
 FONT_CSS = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "fonts.css"
@@ -21,6 +22,8 @@ FONT_CSS = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "fonts.
 DEFAULT_DPI = 203
 
 SEEDED_FILES = ("template.html", "style.css", "meta.json")
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass(frozen=True)
@@ -56,9 +59,10 @@ def list_presets(shared_folder: Path, mode: str) -> list[TemplatePreset]:
 
     try:
         preset_dirs = sorted(p for p in mode_dir.iterdir() if p.is_dir())
-    except OSError:
+    except OSError as error:
         # A shared folder that goes unreadable between the mkdir above and
         # here must degrade to "no presets found", not crash app startup.
+        logger.warning("Could not list templates in %s: %s", mode_dir, error)
         return []
 
     presets = []
@@ -76,9 +80,10 @@ def list_presets(shared_folder: Path, mode: str) -> list[TemplatePreset]:
                 template_path=preset_dir / "template.html",
                 stylesheet_path=preset_dir / "style.css",
             )
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError) as error:
             # These files are hand-edited in a folder several machines share.
             # One typo must cost that preset, not everyone else's app launch.
+            logger.warning("Skipping invalid preset %s: %s", preset_dir, error)
             continue
         presets.append(preset)
     return presets
@@ -107,7 +112,8 @@ def _seed_examples(mode_dir: Path, mode: str) -> None:
         _write_if_changed(
             mode_dir / "README.txt", (EXAMPLES_ROOT / "README.txt").read_text(encoding="utf-8")
         )
-    except OSError:
+    except OSError as error:
+        logger.warning("Could not seed example templates into %s: %s", mode_dir, error)
         return
 
 

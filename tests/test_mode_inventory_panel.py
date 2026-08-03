@@ -309,7 +309,7 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
     assert len(audit_files) == 1
     rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 2  # header + one entry
-    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2"]
+    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2", "Default 150x100mm", "(system default)"]
 
 
 def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
@@ -368,7 +368,7 @@ def test_print_checked_items_skips_unchecked_rows(tmp_path):
 
     audit_files = list((tmp_path / "audit").glob("*.csv"))
     log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
-    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1"]
+    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1", "Default 150x100mm", "(system default)"]
 
 
 def test_print_checked_items_raises_when_nothing_checked(tmp_path):

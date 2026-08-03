@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.print_batch import BatchResult
+from app.core.print_service import printer_display
 from app.core.template_renderer import TemplatePreset
 from app.core.zpl_print_service import windows_print_errors
 
@@ -61,18 +62,12 @@ class PrintPreviewDialog(QDialog):
         pager.addWidget(self._next_button)
         pager.addStretch()
 
-        # Mirrors send_to_printer's own choice of target in app/core/print_service.py -
-        # the summary should show where the labels will actually go.
-        printer_display = (
-            settings.get("raw_zpl_target")
-            if settings.get("print_mode") == "raw_zpl"
-            else settings.get("default_printer")
-        ) or "(system default)"
+        printer = printer_display(settings)
         summary = QLabel(
             f"{count} label{'s' if count != 1 else ''} - "
             f"{preset.width_mm:g}x{preset.height_mm:g}mm - "
             f"Template: {preset.name} - Warehouse: {warehouse_display} - "
-            f"Printer: {printer_display}"
+            f"Printer: {printer}"
         )
         summary.setWordWrap(True)
         self._summary_label = summary

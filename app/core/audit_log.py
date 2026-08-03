@@ -9,7 +9,10 @@ from pathlib import Path
 
 from app.core.config import atomic_write_text, sanitize_filename_component
 
-LOG_COLUMNS = ["timestamp", "user", "mode", "warehouse_prefix", "count", "description"]
+LOG_COLUMNS = [
+    "timestamp", "user", "mode", "warehouse_prefix", "count", "description",
+    "preset", "printer",
+]
 
 _RISKY_LEADING_CHARS = ("=", "+", "-", "@")
 
@@ -28,6 +31,8 @@ def append_print_log(
     warehouse_prefix: str,
     count: int,
     description: str,
+    preset: str,
+    printer: str,
 ) -> None:
     audit_dir = Path(shared_folder) / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
@@ -46,6 +51,8 @@ def append_print_log(
                 _escape_csv_formula(warehouse_prefix),
                 count,
                 _escape_csv_formula(description),
+                _escape_csv_formula(preset),
+                _escape_csv_formula(printer),
             ]
         )
 

@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.config import default_settings_path, load_settings, qsettings
+from app.core.config import default_settings_path, load_settings, qsettings, shared_folder
+from app.core.logging_setup import configure_logging
 from app.core.print_batch import prune_archive
 from app.ui.mode_inventory_panel import InventoryModePanel
 from app.ui.mode_positions_panel import PositionsModePanel
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
         self._settings_path = default_settings_path()
         self._settings = load_settings(self._settings_path, on_recovery=self._warn_settings_recovered)
         prune_archive(self._settings)
+        configure_logging(shared_folder(self._settings))
 
         self.positions_panel = PositionsModePanel(self._settings)
         self.inventory_panel = InventoryModePanel(self._settings)
@@ -115,6 +117,7 @@ class MainWindow(QMainWindow):
         dialog = SettingsWindow(self._settings, self._settings_path, parent=self)
         if dialog.exec():
             self._settings = load_settings(self._settings_path)
+            configure_logging(shared_folder(self._settings))
             self.positions_panel.refresh_from_settings(self._settings)
             self.inventory_panel.refresh_from_settings(self._settings)
             self._update_share_banner()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import re
 from dataclasses import dataclass, field
@@ -9,14 +10,16 @@ from pathlib import Path
 from PIL import Image
 
 from app.core.audit_log import append_print_log
-from app.core.config import sanitize_filename_component
+from app.core.config import LOGGER_NAME, sanitize_filename_component
 from app.core.config import shared_folder as resolve_shared_folder
-from app.core.print_service import send_to_printer
+from app.core.print_service import printer_display, send_to_printer
 from app.core.template_renderer import TemplatePreset
 
 DEFAULT_ARCHIVE_RETENTION_DAYS = 90
 
 _ARCHIVE_FILENAME_PATTERN = re.compile(r"^\d{8}_\d{6}_\d{6}_.+\.pdf$")
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass
@@ -48,25 +51,35 @@ def print_batch(
     if copies < 1:
         raise ValueError("copies must be at least 1")
 
-    if output_pdf_path is not None:
-        # An explicit output path is a one-shot export (e.g. "Save as PDF"):
-        # copies doesn't apply to a file, and there is exactly one render.
-        send_to_printer(
-            images,
-            width_mm=preset.width_mm,
-            height_mm=preset.height_mm,
-            settings=settings,
-            output_pdf_path=output_pdf_path,
-        )
-    else:
-        for _ in range(copies):
+    printer = printer_display(settings)
+    logger.info(
+        "Print requested: mode=%s preset=%s printer=%s warehouse=%s count=%d copies=%d description=%r",
+        mode, preset.name, printer, warehouse_prefix, len(images), copies, description,
+    )
+
+    try:
+        if output_pdf_path is not None:
+            # An explicit output path is a one-shot export (e.g. "Save as PDF"):
+            # copies doesn't apply to a file, and there is exactly one render.
             send_to_printer(
                 images,
                 width_mm=preset.width_mm,
                 height_mm=preset.height_mm,
                 settings=settings,
-                output_pdf_path=None,
+                output_pdf_path=output_pdf_path,
             )
+        else:
+            for _ in range(copies):
+                send_to_printer(
+                    images,
+                    width_mm=preset.width_mm,
+                    height_mm=preset.height_mm,
+                    settings=settings,
+                    output_pdf_path=None,
+                )
+    except Exception:
+        logger.exception("Print failed: mode=%s preset=%s printer=%s", mode, preset.name, printer)
+        raise
 
     folder = resolve_shared_folder(settings)
     total_count = len(images) * copies
@@ -90,10 +103,9 @@ def print_batch(
                 output_pdf_path=archive_path,
             )
     except OSError as error:
-        warnings.append(
-            f"Labels printed, but the PDF archive failed: {error}. "
-            "Do not reprint this batch."
-        )
+        message = f"Labels printed, but the PDF archive failed: {error}. Do not reprint this batch."
+        logger.warning(message)
+        warnings.append(message)
         archive_path = None
 
     try:
@@ -103,12 +115,13 @@ def print_batch(
             warehouse_prefix=warehouse_prefix,
             count=total_count,
             description=description,
+            preset=preset.name,
+            printer=printer,
         )
     except OSError as error:
-        warnings.append(
-            f"Labels printed, but the audit log entry failed: {error}. "
-            "Do not reprint this batch."
-        )
+        message = f"Labels printed, but the audit log entry failed: {error}. Do not reprint this batch."
+        logger.warning(message)
+        warnings.append(message)
 
     return BatchResult(count=total_count, archive_path=archive_path, warnings=warnings)
 
