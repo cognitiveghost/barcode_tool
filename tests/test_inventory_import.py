@@ -134,6 +134,36 @@ def test_expiry_with_slashes_is_not_split_into_a_fake_batch():
     assert items[0].batch == ""
 
 
+def test_items_from_csv_rows_splits_combined_expiry_batch_column():
+    # WMS export with a single "Exp/Bat" column - the operator maps both the
+    # expiry and batch fields to that same source column in the CSV dialog,
+    # so both come in with the identical raw combined string.
+    rows = [{"sku": "SKU1", "position_code": "H011A", "expiry": "2027-03/4471", "batch": "2027-03/4471"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].expiry == "2027-03"
+    assert items[0].batch == "4471"
+
+
+def test_items_from_csv_rows_splits_combined_column_on_last_slash():
+    # A date that itself contains slashes must still come out intact when
+    # combined with a batch number in the same "Exp/Bat" column.
+    rows = [
+        {
+            "sku": "SKU1",
+            "position_code": "H011A",
+            "expiry": "2026/08/02/LOT9",
+            "batch": "2026/08/02/LOT9",
+        }
+    ]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].expiry == "2026/08/02"
+    assert items[0].batch == "LOT9"
+
+
 def test_items_from_csv_rows_uppercases_position_code_column():
     rows = [{"sku": "SKU1", "position_code": "h011a"}]
 
