@@ -70,6 +70,7 @@ def test_image_to_zpl_rotate_false_by_default():
 
 
 def test_print_labels_zpl_passes_rotate_through_to_image_to_zpl(monkeypatch):
+    monkeypatch.setattr("app.core.zpl_print_service.sys.platform", "linux")
     seen = []
     monkeypatch.setattr(
         "app.core.zpl_print_service.image_to_zpl",
