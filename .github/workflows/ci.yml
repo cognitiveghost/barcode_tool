@@ -25,12 +25,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0 fonts-dejavu-core
-          # test_shipped_default_actually_applies_the_bundled_font renders once
-          # with the bundled @font-face stripped, forcing Pango to fall back to
-          # a system font. With zero fonts installed, Pango segfaults instead
-          # of erroring (a known Pango/fontconfig failure mode) - this package
-          # just needs to exist, its metrics are never asserted on.
           fc-list | wc -l
+          fc-match "JetBrains Mono" || true
+          fc-match "JetBrains Mono,monospace" || true
+          fc-match monospace || true
+          fc-match --format='file=%{file}\nfamily=%{family}\n' "JetBrains Mono,monospace" || true
       - name: Install Pango for WeasyPrint (Windows)
         if: runner.os == 'Windows'
         shell: cmd
