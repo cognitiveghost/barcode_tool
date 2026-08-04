@@ -322,6 +322,33 @@ def test_preview_marks_a_row_that_would_be_skipped(tmp_path):
     assert good_item.background().color().name() != bad_item.background().color().name()
 
 
+def test_preview_skip_highlight_pairs_a_readable_foreground(tmp_path):
+    # The skip-highlight background is a fixed light pink regardless of the
+    # active theme. Without a matching fixed foreground, a dark theme's
+    # white text becomes unreadable against it - and since most rows are
+    # flagged "would skip" until every required column gets mapped, that
+    # made the whole preview table look blank until mapping was complete.
+    _app()
+    path = tmp_path / "positions.csv"
+    _write_csv(path, [["Corridor", "Number"], ["H", "not-a-number"]])
+    dialog = CsvImportDialog(
+        FIELDS,
+        row_would_be_skipped=lambda row: not row.get("number", "").isdigit(),
+    )
+    dialog.load_csv(path)
+    dialog.field_combos["corridor"].setCurrentIndex(1)
+    dialog.field_combos["number"].setCurrentIndex(2)
+
+    bad_item = dialog.preview_table.item(0, 0)
+    background = bad_item.background().color()
+    foreground = bad_item.foreground().color()
+
+    def _luminance(color):
+        return 0.2126 * color.redF() + 0.7152 * color.greenF() + 0.0722 * color.blueF()
+
+    assert abs(_luminance(background) - _luminance(foreground)) > 0.5
+
+
 def test_accepting_without_settings_does_not_raise(tmp_path):
     # Regression guard: accept() must be a no-op wrt persistence when
     # settings/mode are None, not raise on missing state.

@@ -236,7 +236,14 @@ class CsvImportDialog(QDialog):
             for col_index, (name, _label) in enumerate(self._fields):
                 item = QTableWidgetItem(mapped_row.get(name, ""))
                 if would_skip:
+                    # The highlight background is a fixed light pink regardless
+                    # of theme; pair it with a fixed dark foreground too, or a
+                    # dark theme's white text turns unreadable against it - and
+                    # since most preview rows are flagged "would skip" until
+                    # every required column is mapped, that made the whole
+                    # table look blank until mapping was complete.
                     item.setBackground(QColor(255, 210, 210))
+                    item.setForeground(QColor(40, 0, 0))
                 self.preview_table.setItem(row_index, col_index, item)
         self._update_ok_state()
 

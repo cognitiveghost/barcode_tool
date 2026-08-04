@@ -21,6 +21,30 @@ def test_image_to_zpl_returns_a_complete_zpl_block():
     assert zpl.rstrip().endswith("^XZ")
 
 
+def test_image_to_zpl_prints_black_content_as_set_bits():
+    # ZPL's ^GFA graphic field treats a set bit as a printed (black) dot.
+    # PIL's mode "1" does the opposite (a set bit is white), so a fully
+    # black source image must come out as all-ones graphic-field data, not
+    # all-zeros - otherwise every print comes out with colors swapped.
+    black = Image.new("L", (16, 8), 0).convert("1")
+
+    zpl = image_to_zpl(black)
+
+    assert "GFA,32,16,2,ffffffffffffffffffffffffffffffff" in zpl
+
+
+def test_image_to_zpl_declares_print_width_and_label_length():
+    # Without ^PW/^LL the printer falls back to whatever label size it last
+    # had calibrated, which - unless it happens to match this image -
+    # prints misaligned or rotated-looking output.
+    image = Image.new("RGB", (200, 120), "white")
+
+    zpl = image_to_zpl(image)
+
+    assert "^PW200" in zpl
+    assert "^LL120" in zpl
+
+
 def test_send_raw_linux_writes_bytes_to_the_device_path(tmp_path):
     device_path = tmp_path / "lp0"
 

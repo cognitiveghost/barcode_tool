@@ -52,6 +52,17 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
 
             expiry = (row.get("expiry") or "").strip()
             batch = (row.get("batch") or "").strip()
+            # Some WMS exports carry expiry and batch combined in a single
+            # "Exp/Bat" column (e.g. "2027-03/4471"). The operator maps both
+            # the expiry and batch fields to that same source column in the
+            # CSV import dialog - an explicit, deliberate signal, unlike the
+            # old "split on / whenever one side is empty" heuristic that got
+            # deleted for shredding real dates like "2026/08/02". Split on
+            # the last "/" so a date that itself contains slashes still
+            # comes out intact on the left.
+            if expiry and expiry == batch and "/" in expiry:
+                expiry, batch = expiry.rsplit("/", 1)
+                expiry, batch = expiry.strip(), batch.strip()
 
             items.append(
                 InventoryItem(
