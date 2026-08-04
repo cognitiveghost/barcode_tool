@@ -25,6 +25,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0
+          dpkg -l | grep -i 'pango\|harfbuzz\|fontconfig\|cairo' || true
+          apt-cache policy libpango-1.0-0 libharfbuzz0b fontconfig-config || true
       - name: Install Pango for WeasyPrint (Windows)
         if: runner.os == 'Windows'
         shell: cmd
