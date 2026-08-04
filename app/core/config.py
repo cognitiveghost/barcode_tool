@@ -14,6 +14,7 @@ DEFAULT_SETTINGS = {
     "default_printer": "",
     "print_mode": "driver",
     "raw_zpl_target": "",
+    "raw_zpl_rotate": False,
     "warehouses": [],
     "csv_mappings": {},
     "archive_retention_days": 90,

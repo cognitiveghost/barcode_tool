@@ -7,6 +7,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtPrintSupport import QPrinterInfo
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -76,6 +77,14 @@ class SettingsWindow(QDialog):
         else:
             self.raw_zpl_target_edit.setPlaceholderText("e.g. /dev/usb/lp0")
 
+        self.raw_zpl_rotate_check = QCheckBox("Rotate labels 90° for raw ZPL")
+        self.raw_zpl_rotate_check.setChecked(bool(settings.get("raw_zpl_rotate", False)))
+        self.raw_zpl_rotate_check.setToolTip(
+            "Raw ZPL has no printer driver to correct this itself: turn this on if "
+            "labels come out landscape on a portrait-mounted roll (or vice versa) - "
+            "it depends on how your printer's media is loaded, not on the template."
+        )
+
         self.warehouse_table = QTableWidget(0, 2)
         self.warehouse_table.setHorizontalHeaderLabels(["Name", "Prefix"])
         for warehouse in settings.get("warehouses", []):
@@ -109,6 +118,7 @@ class SettingsWindow(QDialog):
         printing_form.addRow("Printer", self.printer_combo)
         printing_form.addRow("Print mode", self.print_mode_combo)
         printing_form.addRow("Raw ZPL target", self.raw_zpl_target_edit)
+        printing_form.addRow("", self.raw_zpl_rotate_check)
         zpl_help = QLabel(
             "Only used in Raw ZPL mode. The printer's raw queue name or device path."
         )
@@ -189,6 +199,7 @@ class SettingsWindow(QDialog):
             "warehouses": warehouses,
             "print_mode": self.print_mode_combo.currentData(),
             "raw_zpl_target": self.raw_zpl_target_edit.text(),
+            "raw_zpl_rotate": self.raw_zpl_rotate_check.isChecked(),
         }
 
     def validation_error(self) -> str | None:

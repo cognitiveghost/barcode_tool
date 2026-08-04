@@ -7,7 +7,15 @@ from PIL import Image
 from zebrafy import ZebrafyImage
 
 
-def image_to_zpl(image: Image.Image) -> str:
+def image_to_zpl(image: Image.Image, rotate: bool = False) -> str:
+    # Raw ZPL talks straight to the print head - there's no driver in the
+    # loop to reconcile a landscape-designed template against a
+    # portrait-mounted label roll (or vice versa). The roll's physical width
+    # is fixed by how it's loaded; ^PW must match that, not the template's
+    # design orientation. rotate is an operator-set fact about their
+    # specific printer's media, not something derivable from the template.
+    if rotate:
+        image = image.transpose(Image.Transpose.ROTATE_90)
     # invert=True: PIL's mode "1" packs a set bit as white, but ZPL's ^GFA
     # graphic field treats a set bit as a printed (black) dot - without this
     # every raw ZPL print comes out with barcode and background swapped.
@@ -41,9 +49,9 @@ def send_raw_windows(printer_name: str, data: bytes) -> None:
         win32print.ClosePrinter(handle)
 
 
-def print_labels_zpl(images: list[Image.Image], target: str) -> None:
+def print_labels_zpl(images: list[Image.Image], target: str, rotate: bool = False) -> None:
     for image in images:
-        data = image_to_zpl(image).encode("ascii")
+        data = image_to_zpl(image, rotate=rotate).encode("ascii")
         if sys.platform == "win32":
             send_raw_windows(target, data)
         else:

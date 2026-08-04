@@ -45,6 +45,46 @@ def test_image_to_zpl_declares_print_width_and_label_length():
     assert "^LL120" in zpl
 
 
+def test_image_to_zpl_rotate_swaps_print_width_and_label_length():
+    # Raw ZPL has no printer driver to reconcile a landscape-designed
+    # template against a portrait-mounted label roll - the roll's physical
+    # (fixed) width becomes whichever axis the printer receives as ^PW.
+    # rotate=True is the operator's way of telling us the roll is mounted
+    # 90 degrees from how the template was designed, so content must be
+    # turned to match, not just relabelled.
+    image = Image.new("RGB", (200, 120), "white")
+
+    zpl = image_to_zpl(image, rotate=True)
+
+    assert "^PW120" in zpl
+    assert "^LL200" in zpl
+
+
+def test_image_to_zpl_rotate_false_by_default():
+    image = Image.new("RGB", (200, 120), "white")
+
+    zpl = image_to_zpl(image)
+
+    assert "^PW200" in zpl
+    assert "^LL120" in zpl
+
+
+def test_print_labels_zpl_passes_rotate_through_to_image_to_zpl(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        "app.core.zpl_print_service.image_to_zpl",
+        lambda image, rotate=False: seen.append(rotate) or "^XA^XZ",
+    )
+    monkeypatch.setattr(
+        "app.core.zpl_print_service.send_raw_linux", lambda target, data: None
+    )
+    images = [Image.new("RGB", (10, 10), "white")]
+
+    print_labels_zpl(images, "/dev/usb/lp0", rotate=True)
+
+    assert seen == [True]
+
+
 def test_send_raw_linux_writes_bytes_to_the_device_path(tmp_path):
     device_path = tmp_path / "lp0"
 
@@ -127,7 +167,7 @@ def test_print_labels_zpl_dispatches_to_linux_transport(monkeypatch):
         lambda target, data: sent.append((target, data)),
     )
     monkeypatch.setattr(
-        "app.core.zpl_print_service.image_to_zpl", lambda image: "^XA^XZ"
+        "app.core.zpl_print_service.image_to_zpl", lambda image, rotate=False: "^XA^XZ"
     )
     images = [Image.new("RGB", (10, 10), "white"), Image.new("RGB", (10, 10), "white")]
 
@@ -144,7 +184,7 @@ def test_print_labels_zpl_dispatches_to_windows_transport(monkeypatch):
         lambda target, data: sent.append((target, data)),
     )
     monkeypatch.setattr(
-        "app.core.zpl_print_service.image_to_zpl", lambda image: "^XA^XZ"
+        "app.core.zpl_print_service.image_to_zpl", lambda image, rotate=False: "^XA^XZ"
     )
     images = [Image.new("RGB", (10, 10), "white")]
 

@@ -77,6 +77,8 @@ def send_to_printer(
         # ZPL maps one image pixel to one print-head dot, so the labels must
         # already be rendered at head resolution (template_renderer.DEFAULT_DPI).
         # Resampling them here would only blur the bars.
-        print_labels_zpl(images, settings.get("raw_zpl_target", ""))
+        print_labels_zpl(
+            images, settings.get("raw_zpl_target", ""), rotate=settings.get("raw_zpl_rotate", False)
+        )
         return
     print_labels(images, width_mm, height_mm, printer_name=settings.get("default_printer") or None)

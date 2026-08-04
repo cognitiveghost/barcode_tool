@@ -120,7 +120,7 @@ def test_send_to_printer_dispatches_to_raw_zpl_when_configured(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "app.core.print_service.print_labels_zpl",
-        lambda imgs, target: calls.append((imgs, target)),
+        lambda imgs, target, rotate=False: calls.append((imgs, target)),
     )
     settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
 
@@ -139,13 +139,43 @@ def test_send_to_printer_passes_raw_zpl_labels_through_unresampled(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "app.core.print_service.print_labels_zpl",
-        lambda imgs, target: calls.append(imgs),
+        lambda imgs, target, rotate=False: calls.append(imgs),
     )
     settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
 
     send_to_printer(images, width_mm=150, height_mm=100, settings=settings)
 
     assert calls[0][0] is images[0]
+
+
+def test_send_to_printer_passes_raw_zpl_rotate_setting_through(monkeypatch):
+    _app()
+    images = [Image.new("RGB", (100, 100), "white")]
+    calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels_zpl",
+        lambda imgs, target, rotate=False: calls.append(rotate),
+    )
+    settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0", "raw_zpl_rotate": True}
+
+    send_to_printer(images, width_mm=150, height_mm=100, settings=settings)
+
+    assert calls == [True]
+
+
+def test_send_to_printer_defaults_raw_zpl_rotate_to_false(monkeypatch):
+    _app()
+    images = [Image.new("RGB", (100, 100), "white")]
+    calls = []
+    monkeypatch.setattr(
+        "app.core.print_service.print_labels_zpl",
+        lambda imgs, target, rotate=False: calls.append(rotate),
+    )
+    settings = {"print_mode": "raw_zpl", "raw_zpl_target": "/dev/usb/lp0"}
+
+    send_to_printer(images, width_mm=150, height_mm=100, settings=settings)
+
+    assert calls == [False]
 
 
 def test_send_to_printer_defaults_to_driver_mode(monkeypatch):
@@ -186,7 +216,7 @@ def test_send_to_printer_does_not_fall_back_to_driver_when_raw_zpl_fails(monkeyp
         lambda *a, **k: driver_calls.append(True),
     )
 
-    def _boom(imgs, target):
+    def _boom(imgs, target, rotate=False):
         raise OSError("device not found")
 
     monkeypatch.setattr("app.core.print_service.print_labels_zpl", _boom)
