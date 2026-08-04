@@ -75,17 +75,32 @@ def test_settings_window_defaults_print_mode_to_driver():
     assert window.print_mode_combo.currentData() == "driver"
 
 
+def test_settings_window_prefills_raw_zpl_rotate():
+    _app()
+    settings = {**DEFAULT_SETTINGS, "raw_zpl_rotate": True}
+    window = SettingsWindow(settings, settings_path=None)
+    assert window.raw_zpl_rotate_check.isChecked() is True
+
+
+def test_settings_window_defaults_raw_zpl_rotate_to_unchecked():
+    _app()
+    window = SettingsWindow(DEFAULT_SETTINGS, settings_path=None)
+    assert window.raw_zpl_rotate_check.isChecked() is False
+
+
 def test_save_writes_print_mode_and_raw_zpl_target_to_disk(tmp_path):
     _app()
     settings_path = tmp_path / "settings.json"
     window = SettingsWindow(DEFAULT_SETTINGS, settings_path=settings_path)
     window.print_mode_combo.setCurrentIndex(window.print_mode_combo.findData("raw_zpl"))
     window.raw_zpl_target_edit.setText("/dev/usb/lp0")
+    window.raw_zpl_rotate_check.setChecked(True)
     window._save_and_close()
 
     saved = load_settings(settings_path)
     assert saved["print_mode"] == "raw_zpl"
     assert saved["raw_zpl_target"] == "/dev/usb/lp0"
+    assert saved["raw_zpl_rotate"] is True
 
 
 def test_consolidate_audit_log_button_reports_merged_count(monkeypatch, tmp_path):
