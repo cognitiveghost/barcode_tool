@@ -32,7 +32,23 @@ jobs:
           C:\msys64\usr\bin\pacman.exe -S --noconfirm --needed mingw-w64-x86_64-pango
           echo WEASYPRINT_DLL_DIRECTORIES=C:\msys64\mingw64\bin>> %GITHUB_ENV%
       - run: pip install -r requirements.txt
-      - run: pytest -v
+      - name: Run WeasyPrint's font-swap test in isolation (Linux)
+        if: runner.os == 'Linux'
+        # WeasyPrint/Pango's font-map cache carries state across renders in
+        # the same process. This test renders once with the bundled font,
+        # then again with none - by the time the full suite (dozens of
+        # prior renders) reaches it, that accumulated state segfaults the
+        # process on ubuntu-latest. Verified: passes standalone, and passes
+        # on Windows even mid-suite - only crashes here once wedged between
+        # many prior renders. Its own pytest process sidesteps the shared
+        # cache without skipping the test itself.
+        run: pytest -v -k test_shipped_default_actually_applies_the_bundled_font
+      - name: Run the rest of the suite (Linux)
+        if: runner.os == 'Linux'
+        run: pytest -v -k "not test_shipped_default_actually_applies_the_bundled_font"
+      - name: Run the suite (Windows)
+        if: runner.os == 'Windows'
+        run: pytest -v
 
   lint:
     runs-on: ubuntu-latest

@@ -8,7 +8,17 @@ from zebrafy import ZebrafyImage
 
 
 def image_to_zpl(image: Image.Image) -> str:
-    return ZebrafyImage(image).to_zpl()
+    # invert=True: PIL's mode "1" packs a set bit as white, but ZPL's ^GFA
+    # graphic field treats a set bit as a printed (black) dot - without this
+    # every raw ZPL print comes out with barcode and background swapped.
+    field = ZebrafyImage(image, invert=True, complete_zpl=False).to_zpl()
+    # ^PW/^LL tell the printer this job's exact width/length in dots (1
+    # image pixel = 1 dot, see send_to_printer). Without them the printer
+    # falls back to whatever label size it last had configured/calibrated,
+    # which - when it doesn't match this image - prints misaligned or
+    # rotated-looking output and can trigger the printer's own media
+    # recalibration.
+    return f"^XA\n^PW{image.width}\n^LL{image.height}\n{field}\n^XZ\n"
 
 
 def send_raw_linux(device_path: str, data: bytes) -> None:
