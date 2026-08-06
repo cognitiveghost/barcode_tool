@@ -8,6 +8,7 @@ from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
@@ -30,12 +31,22 @@ from app.core.inventory_import import (
 )
 from app.core.position_generator import display_position_code
 from app.core.print_batch import BatchResult, PrintCancelled, print_batch
-from app.core.template_renderer import TemplatePreset, list_presets, render_records
+from app.core.template_renderer import (
+    TemplatePreset,
+    list_presets,
+    render_records,
+    render_table_pdf,
+)
 from app.ui.csv_import_dialog import CsvImportDialog
 from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
-TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
+TABLE_COLUMNS = ["", "SKU", "Qty", "Name", "Client", "Position", "Batch", "Expiry"]
+
+# A4 table-report presets live in their own mode folder, never in the
+# per-label "inventory" one - keeps them out of the Print button's Template
+# dropdown, where a whole-list template would render as garbage.
+TABLE_PRESET_MODE = "inventory-table"
 
 _DESCRIPTION_SKU_LIMIT = 5
 
@@ -69,6 +80,7 @@ def _record_for_item(item: InventoryItem, warehouse_prefix: str, generated_date:
         "position_code": display_position_code(item.position_code),
         "position_data": f"{warehouse_prefix}{item.position_code}",
         "generated_date": generated_date,
+        "quantity": str(item.quantity),
     }
 
 
@@ -113,6 +125,10 @@ class InventoryModePanel(QWidget):
         self.print_button.clicked.connect(self._on_print_clicked)
         self.print_button.setEnabled(False)
 
+        self.export_table_button = QPushButton("Export table (PDF)...")
+        self.export_table_button.clicked.connect(self._on_export_table_clicked)
+        self.export_table_button.setEnabled(False)
+
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
         form.addRow("Template", self.preset_combo)
@@ -130,6 +146,7 @@ class InventoryModePanel(QWidget):
         layout.addWidget(self.selection_label)
         layout.addWidget(self.items_table)
         layout.addWidget(self.print_button)
+        layout.addWidget(self.export_table_button)
 
     def refresh_from_settings(self, settings: dict) -> None:
         self._settings = settings
@@ -206,7 +223,15 @@ class InventoryModePanel(QWidget):
             check_item.setData(Qt.ItemDataRole.UserRole, item)
             self.items_table.setItem(row_index, 0, check_item)
 
-            values = [item.sku, item.name, item.client, item.position_code, item.batch, item.expiry]
+            values = [
+                item.sku,
+                str(item.quantity),
+                item.name,
+                item.client,
+                item.position_code,
+                item.batch,
+                item.expiry,
+            ]
             for column, value in enumerate(values, start=1):
                 cell = QTableWidgetItem(value)
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -246,6 +271,7 @@ class InventoryModePanel(QWidget):
         checked_count = len(self.checked_items())
         self.selection_label.setText(f"{checked_count} of {total} selected")
         self.print_button.setEnabled(checked_count > 0)
+        self.export_table_button.setEnabled(checked_count > 0)
 
     def _on_import_csv_clicked(self) -> None:
         dialog = CsvImportDialog(
@@ -376,3 +402,42 @@ class InventoryModePanel(QWidget):
         finally:
             progress.close()
         return images
+
+    def _on_export_table_clicked(self) -> None:
+        checked = self.checked_items()
+        if not checked:
+            QMessageBox.warning(
+                self, "Export failed", "Nothing to export - import a CSV and check at least one row"
+            )
+            return
+        warehouse_prefix = self.warehouse_combo.currentData()
+        if not warehouse_prefix:
+            QMessageBox.warning(
+                self, "Export failed", "No warehouse selected - add one in Settings first"
+            )
+            return
+        table_presets = list_presets(shared_folder(self._settings), TABLE_PRESET_MODE)
+        if not table_presets:
+            QMessageBox.warning(
+                self, "Export failed",
+                "No A4 table template found - check the shared folder's templates directory",
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Export table as PDF", filter="PDF files (*.pdf)")
+        if not path:
+            return
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+
+        generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
+        records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
+        try:
+            pdf_bytes = render_table_pdf(table_presets[0], records)
+            Path(path).write_bytes(pdf_bytes)
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Export failed", str(error))
+            return
+
+        unit = "item" if len(checked) == 1 else "items"
+        self._show_status(f"Exported {len(checked)} {unit} to {path}")

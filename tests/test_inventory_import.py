@@ -146,6 +146,17 @@ def test_items_from_csv_rows_splits_combined_expiry_batch_column():
     assert items[0].batch == "4471"
 
 
+def test_items_from_csv_rows_combined_column_without_slash_leaves_batch_empty():
+    # Some rows in a combined "Exp/Bat" column have no batch at all - just a
+    # bare date like "1-Jan". Batch must not silently duplicate the date.
+    rows = [{"sku": "SKU1", "position_code": "H011A", "expiry": "1-Jan", "batch": "1-Jan"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].expiry == "1-Jan"
+    assert items[0].batch == ""
+
+
 def test_items_from_csv_rows_splits_combined_column_on_last_slash():
     # A date that itself contains slashes must still come out intact when
     # combined with a batch number in the same "Exp/Bat" column.
@@ -178,3 +189,58 @@ def test_items_from_csv_rows_zero_pads_the_position_code_column():
     items, _skipped = items_from_csv_rows(rows)
 
     assert items[0].position_code == "H011A"
+
+
+def test_items_from_csv_rows_quantity_defaults_to_one():
+    rows = [{"sku": "SKU1", "position_code": "H011A"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].quantity == 1
+
+
+def test_items_from_csv_rows_parses_explicit_quantity():
+    rows = [{"sku": "SKU1", "position_code": "H011A", "quantity": "7"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].quantity == 7
+
+
+def test_items_from_csv_rows_strips_whitespace_around_quantity():
+    rows = [{"sku": "SKU1", "position_code": "H011A", "quantity": " 7 "}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].quantity == 7
+
+
+def test_items_from_csv_rows_skips_non_numeric_quantity():
+    rows = [
+        {"sku": "SKU1", "position_code": "H011A"},
+        {"sku": "SKU2", "position_code": "H012A", "quantity": "abc"},
+    ]
+
+    items, skipped = items_from_csv_rows(rows)
+
+    assert [item.sku for item in items] == ["SKU1"]
+    assert [s.row_number for s in skipped] == [2]
+    assert "quantity" in skipped[0].reason.lower()
+
+
+def test_items_from_csv_rows_skips_zero_quantity():
+    rows = [{"sku": "SKU1", "position_code": "H011A", "quantity": "0"}]
+
+    items, skipped = items_from_csv_rows(rows)
+
+    assert items == []
+    assert [s.row_number for s in skipped] == [1]
+
+
+def test_items_from_csv_rows_skips_negative_quantity():
+    rows = [{"sku": "SKU1", "position_code": "H011A", "quantity": "-3"}]
+
+    items, skipped = items_from_csv_rows(rows)
+
+    assert items == []
+    assert [s.row_number for s in skipped] == [1]

@@ -5,6 +5,7 @@ import stat
 import sys
 from pathlib import Path
 
+import pypdfium2 as pdfium
 import pytest
 import zxingcpp
 from PIL import Image
@@ -12,10 +13,12 @@ from PIL import Image
 from app.core.config import LOGGER_NAME
 from app.core.template_renderer import (
     DEFAULT_DPI,
+    EXAMPLES_ROOT,
     FONT_CSS,
     TemplatePreset,
     list_presets,
     render_records,
+    render_table_pdf,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "templates" / "sample"
@@ -50,8 +53,7 @@ def test_list_presets_seeds_examples_into_empty_shared_folder(tmp_path):
 def test_list_presets_seeds_inventory_examples_too(tmp_path):
     presets = list_presets(tmp_path, "inventory")
 
-    assert len(presets) == 1
-    assert presets[0].name == "Default 150x100mm"
+    assert [p.name for p in presets] == ["Default 150x100mm", "QR-SKU 68x38mm"]
 
 
 def test_list_presets_keeps_custom_presets_alongside_the_default(tmp_path):
@@ -65,7 +67,7 @@ def test_list_presets_keeps_custom_presets_alongside_the_default(tmp_path):
 
     presets = list_presets(tmp_path, "inventory")
 
-    assert [p.name for p in presets] == ["Custom", "Default 150x100mm"]
+    assert [p.name for p in presets] == ["Custom", "Default 150x100mm", "QR-SKU 68x38mm"]
     assert (mode_dir / "template.html").read_text() == "<div>{{ sku }}</div>"
 
 
@@ -272,6 +274,7 @@ INVENTORY_RECORD = {
     "position_code": "D-002-E",
     "position_data": "C002d002e",
     "generated_date": "2026/08/02",
+    "quantity": "1",
 }
 
 
@@ -282,7 +285,7 @@ INVENTORY_RECORD = {
 def test_shipped_default_renders_the_fields_the_panels_pass(tmp_path, mode, record):
     # End-to-end guard over the bundled font, the injected label_tools and
     # the template layout - a template that fails to render silently ships.
-    preset = list_presets(tmp_path, mode)[-1]
+    preset = next(p for p in list_presets(tmp_path, mode) if p.name == "Default 150x100mm")
 
     image = render_records(preset, [record], dpi=203)[0]
 
@@ -311,7 +314,7 @@ def test_shipped_default_labels_actually_scan(tmp_path, mode, record, expected):
     # pattern. It is deliberately not the quiet-zone guard - a decoder is far
     # more forgiving on a clean digital render than a scanner is on thermal
     # paper, so the ISO geometry is asserted directly in test_label_tools.
-    preset = list_presets(tmp_path, mode)[-1]
+    preset = next(p for p in list_presets(tmp_path, mode) if p.name == "Default 150x100mm")
 
     image = render_records(preset, [record])[0]
 
@@ -332,7 +335,7 @@ def test_shipped_default_actually_applies_the_bundled_font(tmp_path, monkeypatch
     # variance bundling the font was meant to remove. Swapping the bundled
     # font for an empty stylesheet must visibly change the render.
     assert FONT_CSS.exists()
-    preset = list_presets(tmp_path, mode)[-1]
+    preset = next(p for p in list_presets(tmp_path, mode) if p.name == "Default 150x100mm")
     with_font = render_records(preset, [record])[0]
 
     empty_css = tmp_path / "no-fonts.css"
@@ -341,6 +344,91 @@ def test_shipped_default_actually_applies_the_bundled_font(tmp_path, monkeypatch
     without_font = render_records(preset, [record])[0]
 
     assert with_font.tobytes() != without_font.tobytes()
+
+
+def test_shipped_qr_sku_preset_scans_the_sku_and_shows_the_name(tmp_path):
+    preset = next(p for p in list_presets(tmp_path, "inventory") if p.name == "QR-SKU 68x38mm")
+
+    image = render_records(preset, [INVENTORY_RECORD])[0]
+
+    assert abs(image.width - round(68 / 25.4 * 203)) <= 1
+    assert abs(image.height - round(38 / 25.4 * 203)) <= 1
+    symbols = zxingcpp.read_barcodes(image.convert("L"))
+    assert {s.text for s in symbols} == {"SOLARIX-FACE-1000ML-REFILL"}
+
+
+def test_list_presets_seeds_inventory_table_examples_too(tmp_path):
+    presets = list_presets(tmp_path, "inventory-table")
+
+    assert [p.name for p in presets] == ["A4 Table (all fields)"]
+
+
+def test_render_table_pdf_puts_every_record_on_one_native_pdf():
+    preset = TemplatePreset(
+        name="A4 Table (all fields)",
+        mode="inventory-table",
+        width_mm=210,
+        height_mm=297,
+        template_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "template.html",
+        stylesheet_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "style.css",
+    )
+    records = [
+        {**INVENTORY_RECORD, "sku": "SKU-A", "position_data": "C001AAA"},
+        {**INVENTORY_RECORD, "sku": "SKU-B", "position_data": "C001BBB"},
+    ]
+
+    pdf_bytes = render_table_pdf(preset, records)
+
+    # A native vector PDF, not the bitmap-per-page pipeline render_records uses.
+    assert pdf_bytes.startswith(b"%PDF")
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    assert len(pdf) == 1
+    image = pdf[0].render(scale=300 / 72).to_pil().convert("L")
+    decoded = {s.text for s in zxingcpp.read_barcodes(image)}
+    assert {"SKU-A", "SKU-B", "C001AAA", "C001BBB"} <= decoded
+
+
+def test_render_table_pdf_merges_duplicate_sku_position_rows_and_totals_quantity():
+    preset = TemplatePreset(
+        name="A4 Table (all fields)",
+        mode="inventory-table",
+        width_mm=210,
+        height_mm=297,
+        template_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "template.html",
+        stylesheet_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "style.css",
+    )
+    # Position codes and quantities are chosen so none of the expected total
+    # digits ("12", "7", "5", "9") appear as a coincidental substring of any
+    # SKU, position code, or the generated_date heading - otherwise a weak
+    # `in text` check could pass even if the quantity math were wrong.
+    records = [
+        {**INVENTORY_RECORD, "sku": "SKU-100", "position_code": "H-011-A",
+         "position_data": "C001H011A", "quantity": "3"},
+        {**INVENTORY_RECORD, "sku": "SKU-100", "position_code": "H-011-A",
+         "position_data": "C001H011A", "quantity": "4"},
+        {**INVENTORY_RECORD, "sku": "SKU-100", "position_code": "H-033-C",
+         "position_data": "C001H033C", "quantity": "5"},
+        {**INVENTORY_RECORD, "sku": "SKU-200", "position_code": "H-022-B",
+         "position_data": "C001H022B", "quantity": "9"},
+    ]
+
+    pdf_bytes = render_table_pdf(preset, records)
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    assert len(pdf) == 1
+    page = pdf[0]
+    image = page.render(scale=300 / 72).to_pil().convert("L")
+    decoded = [s.text for s in zxingcpp.read_barcodes(image)]
+    # Two duplicate SKU-100/H-011-A rows must collapse into ONE QR each - a
+    # template that still rendered one row per input record would decode
+    # "SKU-100" and "C001H011A" twice instead of once.
+    assert sorted(decoded) == ["C001H011A", "C001H022B", "C001H033C", "SKU-100", "SKU-200"]
+
+    text = page.get_textpage().get_text_range()
+    assert "12" in text  # SKU-100 total: 3 + 4 + 5
+    assert "7" in text  # H-011-A position total: 3 + 4
+    assert "5" in text  # H-033-C position total (untouched by the merge)
+    assert "9" in text  # SKU-200 total, and its only position's qty
 
 
 def test_render_records_raises_when_meta_size_does_not_match_rendered_page():

@@ -20,6 +20,7 @@ _FIELD_SYNONYMS: dict[str, set[str]] = {
     "position_code": {"position", "pos", "location"},
     "expiry": {"exp", "best_before"},
     "batch": {"lot"},
+    "quantity": {"qty", "count", "units"},
 }
 
 
