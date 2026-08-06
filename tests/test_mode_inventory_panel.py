@@ -600,6 +600,37 @@ def test_client_column_populated_from_item():
     assert panel.items_table.item(0, client_column).text() == "Acme Corp"
 
 
+def test_qty_column_populated_from_item():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A", "quantity": "5"}])
+
+    qty_column = TABLE_COLUMNS.index("Qty")
+    assert panel.items_table.item(0, qty_column).text() == "5"
+
+
+def test_qty_column_defaults_to_one_when_not_mapped():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    qty_column = TABLE_COLUMNS.index("Qty")
+    assert panel.items_table.item(0, qty_column).text() == "1"
+
+
+def test_record_for_item_includes_quantity_as_string():
+    from app.ui.mode_inventory_panel import _record_for_item
+    from app.core.inventory_import import InventoryItem
+
+    item = InventoryItem(
+        sku="SKU1", name="Widget", batch="", expiry="", position_code="H011A", quantity=3
+    )
+
+    record = _record_for_item(item, "C001", "2026/08/06")
+
+    assert record["quantity"] == "3"
+
+
 def test_print_checked_items_passes_generated_date_as_yyyy_mm_dd(monkeypatch, tmp_path):
     _app()
     settings = {**SETTINGS, "default_printer": "", "shared_folder": str(tmp_path)}

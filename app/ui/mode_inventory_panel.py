@@ -41,7 +41,7 @@ from app.ui.csv_import_dialog import CsvImportDialog
 from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
-TABLE_COLUMNS = ["", "SKU", "Name", "Client", "Position", "Batch", "Expiry"]
+TABLE_COLUMNS = ["", "SKU", "Qty", "Name", "Client", "Position", "Batch", "Expiry"]
 
 # A4 table-report presets live in their own mode folder, never in the
 # per-label "inventory" one - keeps them out of the Print button's Template
@@ -80,6 +80,7 @@ def _record_for_item(item: InventoryItem, warehouse_prefix: str, generated_date:
         "position_code": display_position_code(item.position_code),
         "position_data": f"{warehouse_prefix}{item.position_code}",
         "generated_date": generated_date,
+        "quantity": str(item.quantity),
     }
 
 
@@ -222,7 +223,15 @@ class InventoryModePanel(QWidget):
             check_item.setData(Qt.ItemDataRole.UserRole, item)
             self.items_table.setItem(row_index, 0, check_item)
 
-            values = [item.sku, item.name, item.client, item.position_code, item.batch, item.expiry]
+            values = [
+                item.sku,
+                str(item.quantity),
+                item.name,
+                item.client,
+                item.position_code,
+                item.batch,
+                item.expiry,
+            ]
             for column, value in enumerate(values, start=1):
                 cell = QTableWidgetItem(value)
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)

@@ -50,6 +50,10 @@ Inventory mode:
     position_data    What the position QR actually encodes: the warehouse
                      prefix + position code, e.g. "C001H029A".
     generated_date   The date this label was generated, e.g. "2026/08/03".
+    quantity         Number of units for this row, e.g. "3". Defaults to
+                      "1" when the source CSV has no quantity column
+                      mapped. Stored as a string like every other field;
+                      convert with Jinja's |int filter for arithmetic.
 
 A field a template doesn't reference is simply unused - Jinja2 does not
 require every record key to be consumed. A field a template references
