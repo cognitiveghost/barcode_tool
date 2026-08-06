@@ -619,8 +619,8 @@ def test_qty_column_defaults_to_one_when_not_mapped():
 
 
 def test_record_for_item_includes_quantity_as_string():
-    from app.ui.mode_inventory_panel import _record_for_item
     from app.core.inventory_import import InventoryItem
+    from app.ui.mode_inventory_panel import _record_for_item
 
     item = InventoryItem(
         sku="SKU1", name="Widget", batch="", expiry="", position_code="H011A", quantity=3
