@@ -14,6 +14,7 @@ INVENTORY_CSV_FIELDS = [
     ("client", "Client (optional)"),
     ("batch", "Batch (optional)"),
     ("expiry", "Expiry (optional)"),
+    ("quantity", "Quantity (optional, defaults to 1)"),
     ("position_code", "Position code (overrides corridor/number/height)"),
     ("corridor", "Corridor"),
     ("number", "Number"),
@@ -29,6 +30,7 @@ class InventoryItem:
     expiry: str
     position_code: str
     client: str = ""
+    quantity: int = 1
 
 
 def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[SkippedRow]]:
@@ -70,6 +72,17 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                 else:
                     batch = ""
 
+            quantity_raw = (row.get("quantity") or "").strip()
+            if quantity_raw:
+                try:
+                    quantity = int(quantity_raw)
+                except ValueError:
+                    raise ValueError("quantity must be a positive whole number") from None
+                if quantity <= 0:
+                    raise ValueError("quantity must be a positive whole number")
+            else:
+                quantity = 1
+
             items.append(
                 InventoryItem(
                     sku=sku,
@@ -78,6 +91,7 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
                     expiry=expiry,
                     position_code=position_code,
                     client=(row.get("client") or "").strip(),
+                    quantity=quantity,
                 )
             )
         except ValueError as error:
