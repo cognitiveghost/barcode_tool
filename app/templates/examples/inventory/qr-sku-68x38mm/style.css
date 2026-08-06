@@ -1,0 +1,31 @@
+/* APP-OWNED FILE - rewritten on every launch, your edits here will be lost.
+   Copy this folder to a sibling name and edit the copy. See ../README.txt */
+@page { size: 68mm 38mm; margin: 0; }
+html, body { margin: 0; padding: 0; }
+
+.label {
+  position: relative;
+  box-sizing: border-box;
+  width: 68mm;
+  height: 38mm;
+  background: #fff;
+  color: #000;
+  font-family: "JetBrains Mono", monospace;
+  overflow: hidden;
+}
+
+.box { position: absolute; box-sizing: border-box; display: flex; overflow: hidden; }
+.box img { width: 100%; height: 100%; }
+
+.qr-sku { left: 2mm; top: 4mm; width: 30mm; height: 30mm; align-items: center; justify-content: center; }
+
+.name {
+  left: 35mm; top: 2mm; width: 31mm; height: 34mm;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  word-wrap: break-word;
+}

@@ -146,6 +146,17 @@ def test_items_from_csv_rows_splits_combined_expiry_batch_column():
     assert items[0].batch == "4471"
 
 
+def test_items_from_csv_rows_combined_column_without_slash_leaves_batch_empty():
+    # Some rows in a combined "Exp/Bat" column have no batch at all - just a
+    # bare date like "1-Jan". Batch must not silently duplicate the date.
+    rows = [{"sku": "SKU1", "position_code": "H011A", "expiry": "1-Jan", "batch": "1-Jan"}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].expiry == "1-Jan"
+    assert items[0].batch == ""
+
+
 def test_items_from_csv_rows_splits_combined_column_on_last_slash():
     # A date that itself contains slashes must still come out intact when
     # combined with a batch number in the same "Exp/Bat" column.

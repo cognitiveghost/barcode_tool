@@ -5,8 +5,10 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+import jinja2
 import pypdfium2 as pdfium
 from blabel import LabelWriter
+from blabel.Blabel import write_pdf as _blabel_write_pdf
 from PIL import Image
 
 from app.core import label_tools
@@ -90,7 +92,7 @@ def list_presets(shared_folder: Path, mode: str) -> list[TemplatePreset]:
 
 
 def _seed_examples(mode_dir: Path, mode: str) -> None:
-    """Refresh the app-owned "default" preset from the shipped examples.
+    """Refresh the app-owned example presets from the shipped examples.
 
     Rewritten on every call so shipped template fixes reach folders seeded by
     an older build. Customisations belong in a sibling folder, which is never
@@ -99,16 +101,17 @@ def _seed_examples(mode_dir: Path, mode: str) -> None:
     Best-effort: a read-only or offline shared folder must not stop the app
     from listing the presets that are already there.
     """
-    example_dir = EXAMPLES_ROOT / mode / "default"
-    if not example_dir.exists():
+    examples_for_mode = EXAMPLES_ROOT / mode
+    if not examples_for_mode.exists():
         return
-    target_dir = mode_dir / "default"
     try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for filename in SEEDED_FILES:
-            _write_if_changed(
-                target_dir / filename, (example_dir / filename).read_text(encoding="utf-8")
-            )
+        for example_dir in sorted(p for p in examples_for_mode.iterdir() if p.is_dir()):
+            target_dir = mode_dir / example_dir.name
+            target_dir.mkdir(parents=True, exist_ok=True)
+            for filename in SEEDED_FILES:
+                _write_if_changed(
+                    target_dir / filename, (example_dir / filename).read_text(encoding="utf-8")
+                )
         _write_if_changed(
             mode_dir / "README.txt", (EXAMPLES_ROOT / "README.txt").read_text(encoding="utf-8")
         )
@@ -149,6 +152,22 @@ def render_records(
         _check_aspect_ratio(preset, images[0])
 
     return images
+
+
+def render_table_pdf(preset: TemplatePreset, records: list[dict]) -> bytes:
+    """Render every record onto one template as a single vector PDF.
+
+    Unlike render_records, this is not one-record-per-page: the whole list
+    is handed to the template at once (as `records`) so it can build a real
+    HTML table that WeasyPrint paginates natively across A4 sheets. There is
+    no pdfium/bitmap step, so a multi-page report stays sharp instead of
+    being rasterised at thermal-head resolution.
+    """
+    template = jinja2.Template(preset.template_path.read_text(encoding="utf-8"))
+    html = template.render(records=records, label_tools=label_tools)
+    return _blabel_write_pdf(
+        html, target="@memory", extra_stylesheets=(str(FONT_CSS), str(preset.stylesheet_path))
+    )
 
 
 def _check_aspect_ratio(preset: TemplatePreset, image: Image.Image) -> None:

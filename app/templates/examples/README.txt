@@ -1,12 +1,12 @@
 Label templates
 ===============
 
-The "default" folder in each mode is owned by the app. It is REWRITTEN on
-every launch so that shipped template fixes reach this shared folder - any
-edit you make there will be lost.
+Folders that match a name shipped with the app (e.g. "default") are owned by
+the app. They are REWRITTEN on every launch so that shipped template fixes
+reach this shared folder - any edit you make there will be lost.
 
-To customise a label, copy the whole "default" folder to a sibling with a
-different name and edit the copy:
+To customise a label, copy the whole folder to a sibling with a different
+name and edit the copy:
 
     positions/default/   <- app-owned, overwritten
     positions/my-aisle/  <- yours, never touched
@@ -57,6 +57,19 @@ that a record doesn't have renders as empty/falsy rather than raising, so a
 typo in a variable name fails silently (a blank spot on the label) rather
 than with an error - double-check spelling against the lists above when
 copying a preset.
+
+
+Inventory table reports (A4)
+=============================
+
+The "inventory-table" folder next to "positions" and "inventory" holds a
+different kind of preset, used by the "Export table (PDF)" button in
+Inventory mode rather than the Template dropdown or the Print button. It is
+rendered ONCE per export, not once per record: the template gets the whole
+list as `records` (each with the same fields as Inventory mode, above) and
+is expected to build its own HTML `<table>` - see the shipped "a4-table"
+preset. The output is a native multi-page PDF, not a rasterised bitmap, so
+it stays sharp on a regular office printer regardless of page count.
 
 label_tools helpers
 ====================

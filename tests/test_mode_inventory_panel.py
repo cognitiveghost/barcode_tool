@@ -260,7 +260,7 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
     warehouse_names = [panel.warehouse_combo.itemText(i) for i in range(panel.warehouse_combo.count())]
     preset_names = [panel.preset_combo.itemText(i) for i in range(panel.preset_combo.count())]
     assert warehouse_names == ["Second"]
-    assert preset_names == ["80x80mm", "Default 150x100mm"]
+    assert preset_names == ["80x80mm", "Default 150x100mm", "QR-SKU 68x38mm"]
 
 
 def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
@@ -709,6 +709,111 @@ def test_print_button_disabled_until_a_row_is_checked():
     panel._set_all_checked(False)
 
     assert not panel.print_button.isEnabled()
+
+
+def test_export_table_button_disabled_until_a_row_is_checked():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+
+    assert not panel.export_table_button.isEnabled()
+
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+
+    assert panel.export_table_button.isEnabled()
+
+    panel._set_all_checked(False)
+
+    assert not panel.export_table_button.isEnabled()
+
+
+def test_export_table_click_without_items_shows_warning(monkeypatch):
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel._on_export_table_clicked()  # button is disabled with no rows - Qt would never emit click()
+
+    assert len(warnings) == 1
+
+
+def test_export_table_click_without_warehouse_shows_warning(monkeypatch):
+    _app()
+    settings = {"warehouses": []}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.export_table_button.click()
+
+    assert len(warnings) == 1
+
+
+def test_export_table_click_cancelling_save_dialog_does_not_render(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: ("", ""))
+    )
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.render_table_pdf",
+        lambda preset, records: render_calls.append(records) or b"%PDF-fake",
+    )
+
+    panel.export_table_button.click()
+
+    assert render_calls == []
+
+
+def test_export_table_click_writes_pdf_for_checked_rows_only(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items(
+        [
+            {"sku": "SKU1", "name": "Widget", "position_code": "H011A"},
+            {"sku": "SKU2", "name": "Gadget", "position_code": "H012A"},
+        ]
+    )
+    check_item = panel.items_table.item(1, 0)
+    check_item.setCheckState(Qt.CheckState.Unchecked)  # SKU2 stays out of the export
+
+    out_path = tmp_path / "export.pdf"
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QFileDialog.getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_path), "PDF files (*.pdf)")),
+    )
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.render_table_pdf",
+        lambda preset, records: render_calls.append(records) or b"%PDF-fake",
+    )
+
+    panel.export_table_button.click()
+
+    assert [r["sku"] for r in render_calls[0]] == ["SKU1"]
+    assert out_path.read_bytes() == b"%PDF-fake"
+
+
+def test_export_table_click_without_a_pdf_suffix_appends_one(monkeypatch, tmp_path):
+    _app()
+    settings = {**SETTINGS, "shared_folder": str(tmp_path)}
+    panel = InventoryModePanel(settings)
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    typed_path = tmp_path / "export"
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QFileDialog.getSaveFileName",
+        staticmethod(lambda *a, **k: (str(typed_path), "PDF files (*.pdf)")),
+    )
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_table_pdf", lambda preset, records: b"%PDF-fake")
+
+    panel.export_table_button.click()
+
+    assert (tmp_path / "export.pdf").exists()
 
 
 def test_print_checked_items_large_batch_renders_in_pinned_chunks(monkeypatch):

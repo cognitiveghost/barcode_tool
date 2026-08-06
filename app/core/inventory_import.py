@@ -59,10 +59,16 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
             # old "split on / whenever one side is empty" heuristic that got
             # deleted for shredding real dates like "2026/08/02". Split on
             # the last "/" so a date that itself contains slashes still
-            # comes out intact on the left.
-            if expiry and expiry == batch and "/" in expiry:
-                expiry, batch = expiry.rsplit("/", 1)
-                expiry, batch = expiry.strip(), batch.strip()
+            # comes out intact on the left. Some rows in that combined column
+            # have no batch at all (just a bare date, e.g. "1-Jan") - without
+            # a "/" there is nothing to split, so batch must be cleared
+            # rather than left duplicating the expiry value.
+            if expiry and expiry == batch:
+                if "/" in expiry:
+                    expiry, batch = expiry.rsplit("/", 1)
+                    expiry, batch = expiry.strip(), batch.strip()
+                else:
+                    batch = ""
 
             items.append(
                 InventoryItem(
