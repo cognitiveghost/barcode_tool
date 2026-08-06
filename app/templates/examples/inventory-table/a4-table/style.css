@@ -3,9 +3,9 @@
 @page { size: A4; margin: 12mm 10mm; }
 html, body { margin: 0; padding: 0; font-family: "JetBrains Mono", monospace; color: #000; }
 
-h1 { font-size: 4mm; margin: 0 0 4mm 0; }
+h1 { font-size: 5mm; margin: 0 0 6mm 0; }
 
-table { width: 100%; border-collapse: collapse; font-size: 3mm; }
+table { width: 100%; border-collapse: collapse; font-size: 3.4mm; }
 /* repeats the header row on every page WeasyPrint paginates the table onto */
 thead { display: table-header-group; }
 /* one <tbody> per SKU group - keeps a merged SKU's rowspan block on one
@@ -15,18 +15,21 @@ tr { page-break-inside: avoid; }
 
 th, td {
   border: 0.2mm solid #000;
-  padding: 1mm 1.5mm;
+  padding: 2.5mm 2mm;
   text-align: left;
   vertical-align: middle;
   overflow: hidden;
 }
 
-th { background: #000; color: #fff; font-weight: 700; text-transform: uppercase; font-size: 2.6mm; }
+th { background: #000; color: #fff; font-weight: 700; text-transform: uppercase; font-size: 3mm; }
 
-.col-num  { width: 8mm; text-align: center; }
-.col-sku  { width: 30mm; }
-.col-name { width: 50mm; }
+/* Column widths sum to 190mm - the full printable width on A4 with the
+   12mm/10mm @page margin above - so the table fills the page edge to edge
+   instead of being auto-shrunk by the browser to fit. */
+.col-num  { width: 10mm; text-align: center; }
+.col-sku  { width: 32mm; }
+.col-name { width: 48mm; }
 .col-pos  { width: 20mm; }
 .col-qty  { width: 16mm; text-align: center; }
-.col-qr   { width: 20mm; text-align: center; }
-.col-qr img { width: 16mm; height: 16mm; }
+.col-qr   { width: 24mm; text-align: center; }
+.col-qr img { width: 20mm; height: 20mm; }
