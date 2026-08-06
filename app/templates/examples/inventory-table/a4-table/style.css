@@ -8,6 +8,9 @@ h1 { font-size: 4mm; margin: 0 0 4mm 0; }
 table { width: 100%; border-collapse: collapse; font-size: 3mm; }
 /* repeats the header row on every page WeasyPrint paginates the table onto */
 thead { display: table-header-group; }
+/* one <tbody> per SKU group - keeps a merged SKU's rowspan block on one
+   page instead of splitting it across a page break */
+tbody { page-break-inside: avoid; }
 tr { page-break-inside: avoid; }
 
 th, td {
@@ -20,12 +23,10 @@ th, td {
 
 th { background: #000; color: #fff; font-weight: 700; text-transform: uppercase; font-size: 2.6mm; }
 
-.col-num    { width: 8mm; text-align: center; }
-.col-sku    { width: 28mm; }
-.col-name   { width: 46mm; }
-.col-client { width: 24mm; }
-.col-batch  { width: 18mm; }
-.col-expiry { width: 18mm; }
-.col-pos    { width: 18mm; }
-.col-qr     { width: 15mm; text-align: center; }
-.col-qr img { width: 12mm; height: 12mm; }
+.col-num  { width: 8mm; text-align: center; }
+.col-sku  { width: 30mm; }
+.col-name { width: 50mm; }
+.col-pos  { width: 20mm; }
+.col-qty  { width: 16mm; text-align: center; }
+.col-qr   { width: 20mm; text-align: center; }
+.col-qr img { width: 16mm; height: 16mm; }

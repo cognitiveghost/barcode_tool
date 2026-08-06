@@ -7,27 +7,35 @@
       <th class="col-num">#</th>
       <th class="col-sku">SKU</th>
       <th class="col-name">Name</th>
-      <th class="col-client">Client</th>
-      <th class="col-batch">Batch</th>
-      <th class="col-expiry">Expiry</th>
-      <th class="col-pos">Position</th>
       <th class="col-qr">QR SKU</th>
+      <th class="col-qty">Total qty</th>
+      <th class="col-pos">Position</th>
+      <th class="col-qty">Qty</th>
       <th class="col-qr">QR Position</th>
     </tr>
   </thead>
+  {% for sku_group in records|groupby('sku') %}
+  {% set sku_records = sku_group.list %}
+  {% set position_groups = sku_records|groupby('position_code') %}
+  {% set total_qty = sku_records|map(attribute='quantity')|map('int')|sum %}
+  {% set sku_index = loop.index %}
   <tbody>
-    {% for record in records %}
+    {% for pos_group in position_groups %}
+    {% set pos_records = pos_group.list %}
+    {% set pos_qty = pos_records|map(attribute='quantity')|map('int')|sum %}
     <tr>
-      <td class="col-num">{{ loop.index }}</td>
-      <td class="col-sku">{{ record.sku }}</td>
-      <td class="col-name">{{ record.name }}</td>
-      <td class="col-client">{{ record.client }}</td>
-      <td class="col-batch">{{ record.batch }}</td>
-      <td class="col-expiry">{{ record.expiry }}</td>
-      <td class="col-pos">{{ record.position_code }}</td>
-      <td class="col-qr"><img src="{{ label_tools.qr_code(record.sku) }}"></td>
-      <td class="col-qr"><img src="{{ label_tools.qr_code(record.position_data) }}"></td>
+      {% if loop.first %}
+      <td class="col-num" rowspan="{{ position_groups|length }}">{{ sku_index }}</td>
+      <td class="col-sku" rowspan="{{ position_groups|length }}">{{ sku_group.grouper }}</td>
+      <td class="col-name" rowspan="{{ position_groups|length }}">{{ sku_records[0].name }}</td>
+      <td class="col-qr" rowspan="{{ position_groups|length }}"><img src="{{ label_tools.qr_code(sku_group.grouper) }}"></td>
+      <td class="col-qty" rowspan="{{ position_groups|length }}">{{ total_qty }}</td>
+      {% endif %}
+      <td class="col-pos">{{ pos_records[0].position_code }}</td>
+      <td class="col-qty">{{ pos_qty }}</td>
+      <td class="col-qr"><img src="{{ label_tools.qr_code(pos_records[0].position_data) }}"></td>
     </tr>
     {% endfor %}
   </tbody>
+  {% endfor %}
 </table>

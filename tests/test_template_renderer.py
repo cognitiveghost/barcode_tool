@@ -274,6 +274,7 @@ INVENTORY_RECORD = {
     "position_code": "D-002-E",
     "position_data": "C002d002e",
     "generated_date": "2026/08/02",
+    "quantity": "1",
 }
 
 
@@ -385,6 +386,49 @@ def test_render_table_pdf_puts_every_record_on_one_native_pdf():
     image = pdf[0].render(scale=300 / 72).to_pil().convert("L")
     decoded = {s.text for s in zxingcpp.read_barcodes(image)}
     assert {"SKU-A", "SKU-B", "C001AAA", "C001BBB"} <= decoded
+
+
+def test_render_table_pdf_merges_duplicate_sku_position_rows_and_totals_quantity():
+    preset = TemplatePreset(
+        name="A4 Table (all fields)",
+        mode="inventory-table",
+        width_mm=210,
+        height_mm=297,
+        template_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "template.html",
+        stylesheet_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "style.css",
+    )
+    # Position codes and quantities are chosen so none of the expected total
+    # digits ("12", "7", "5", "9") appear as a coincidental substring of any
+    # SKU, position code, or the generated_date heading - otherwise a weak
+    # `in text` check could pass even if the quantity math were wrong.
+    records = [
+        {**INVENTORY_RECORD, "sku": "SKU-100", "position_code": "H-011-A",
+         "position_data": "C001H011A", "quantity": "3"},
+        {**INVENTORY_RECORD, "sku": "SKU-100", "position_code": "H-011-A",
+         "position_data": "C001H011A", "quantity": "4"},
+        {**INVENTORY_RECORD, "sku": "SKU-100", "position_code": "H-033-C",
+         "position_data": "C001H033C", "quantity": "5"},
+        {**INVENTORY_RECORD, "sku": "SKU-200", "position_code": "H-022-B",
+         "position_data": "C001H022B", "quantity": "9"},
+    ]
+
+    pdf_bytes = render_table_pdf(preset, records)
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    assert len(pdf) == 1
+    page = pdf[0]
+    image = page.render(scale=300 / 72).to_pil().convert("L")
+    decoded = [s.text for s in zxingcpp.read_barcodes(image)]
+    # Two duplicate SKU-100/H-011-A rows must collapse into ONE QR each - a
+    # template that still rendered one row per input record would decode
+    # "SKU-100" and "C001H011A" twice instead of once.
+    assert sorted(decoded) == ["C001H011A", "C001H022B", "C001H033C", "SKU-100", "SKU-200"]
+
+    text = page.get_textpage().get_text_range()
+    assert "12" in text  # SKU-100 total: 3 + 4 + 5
+    assert "7" in text  # H-011-A position total: 3 + 4
+    assert "5" in text  # H-033-C position total (untouched by the merge)
+    assert "9" in text  # SKU-200 total, and its only position's qty
 
 
 def test_render_records_raises_when_meta_size_does_not_match_rendered_page():
