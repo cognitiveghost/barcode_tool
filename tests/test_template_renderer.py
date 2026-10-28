@@ -357,21 +357,41 @@ def test_shipped_qr_sku_preset_scans_the_sku_and_shows_the_name(tmp_path):
     assert {s.text for s in symbols} == {"SOLARIX-FACE-1000ML-REFILL"}
 
 
-def test_list_presets_seeds_inventory_table_examples_too(tmp_path):
-    presets = list_presets(tmp_path, "inventory-table")
-
-    assert [p.name for p in presets] == ["A4 Table (all fields)"]
-
-
-def test_render_table_pdf_puts_every_record_on_one_native_pdf():
-    preset = TemplatePreset(
-        name="A4 Table (all fields)",
+def _a4_preset() -> TemplatePreset:
+    return TemplatePreset(
+        name="A4 review sheet",
         mode="inventory-table",
         width_mm=210,
         height_mm=297,
         template_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "template.html",
         stylesheet_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "style.css",
     )
+
+
+def _page_text(pdf_bytes: bytes, index: int = 0) -> str:
+    return pdfium.PdfDocument(pdf_bytes)[index].get_textpage().get_text_range()
+
+
+def _one_sku_per_position(count: int) -> list[dict]:
+    return [
+        {
+            **INVENTORY_RECORD,
+            "sku": f"SKU-{i:03d}",
+            "position_code": f"H-{i:03d}-A",
+            "position_data": f"C001H{i:03d}A",
+        }
+        for i in range(count)
+    ]
+
+
+def test_list_presets_seeds_inventory_table_examples_too(tmp_path):
+    presets = list_presets(tmp_path, "inventory-table")
+
+    assert [p.name for p in presets] == ["A4 review sheet"]
+
+
+def test_render_table_pdf_puts_every_record_on_one_native_pdf():
+    preset = _a4_preset()
     records = [
         {**INVENTORY_RECORD, "sku": "SKU-A", "position_data": "C001AAA"},
         {**INVENTORY_RECORD, "sku": "SKU-B", "position_data": "C001BBB"},
@@ -389,18 +409,11 @@ def test_render_table_pdf_puts_every_record_on_one_native_pdf():
 
 
 def test_render_table_pdf_merges_duplicate_sku_position_rows_and_totals_quantity():
-    preset = TemplatePreset(
-        name="A4 Table (all fields)",
-        mode="inventory-table",
-        width_mm=210,
-        height_mm=297,
-        template_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "template.html",
-        stylesheet_path=EXAMPLES_ROOT / "inventory-table" / "a4-table" / "style.css",
-    )
+    preset = _a4_preset()
     # Position codes and quantities are chosen so none of the expected total
-    # digits ("12", "7", "5", "9") appear as a coincidental substring of any
-    # SKU, position code, or the generated_date heading - otherwise a weak
-    # `in text` check could pass even if the quantity math were wrong.
+    # digits appear as a coincidental substring of any SKU, position code, or
+    # the generated_date heading - otherwise a weak `in text` check could pass
+    # even if the quantity math were wrong.
     records = [
         {**INVENTORY_RECORD, "sku": "SKU-100", "position_code": "H-011-A",
          "position_data": "C001H011A", "quantity": "3"},
@@ -412,23 +425,84 @@ def test_render_table_pdf_merges_duplicate_sku_position_rows_and_totals_quantity
          "position_data": "C001H022B", "quantity": "9"},
     ]
 
-    pdf_bytes = render_table_pdf(preset, records)
+    pdf_bytes = render_table_pdf(preset, records, view="sku")
 
     pdf = pdfium.PdfDocument(pdf_bytes)
     assert len(pdf) == 1
-    page = pdf[0]
-    image = page.render(scale=300 / 72).to_pil().convert("L")
+    image = pdf[0].render(scale=300 / 72).to_pil().convert("L")
     decoded = [s.text for s in zxingcpp.read_barcodes(image)]
-    # Two duplicate SKU-100/H-011-A rows must collapse into ONE QR each - a
-    # template that still rendered one row per input record would decode
-    # "SKU-100" and "C001H011A" twice instead of once.
-    assert sorted(decoded) == ["C001H011A", "C001H022B", "C001H033C", "SKU-100", "SKU-200"]
+    # Every sheet row carries its group's SKU QR, so SKU-100 (two merged rows)
+    # decodes twice. The two duplicate SKU-100/H-011-A input rows collapse into
+    # ONE row, so C001H011A decodes once - a template that still rendered one
+    # row per input record would decode it twice.
+    assert sorted(decoded) == [
+        "C001H011A", "C001H022B", "C001H033C", "SKU-100", "SKU-100", "SKU-200",
+    ]
 
-    text = page.get_textpage().get_text_range()
-    assert "12" in text  # SKU-100 total: 3 + 4 + 5
-    assert "7" in text  # H-011-A position total: 3 + 4
-    assert "5" in text  # H-033-C position total (untouched by the merge)
-    assert "9" in text  # SKU-200 total, and its only position's qty
+    text = _page_text(pdf_bytes)
+    # SKU-100 is one group of two rows (the merged H-011-A row and H-033-C)
+    # with qty 3 + 4 + 5 = 12. Merged rows never print "3 rows" for a group
+    # that has only two rows after merging.
+    assert "3 rows" not in text
+    assert "2 rows · qty 12" in text
+    assert text.count("H-011-A") == 1
+
+
+def test_render_table_pdf_density_with_qr_codes_fits_18_rows_on_page_one():
+    pdf_bytes = render_table_pdf(_a4_preset(), _one_sku_per_position(60))
+
+    assert _page_text(pdf_bytes).count("SKU-") >= 18
+
+
+def test_render_table_pdf_density_without_qr_codes_fits_35_rows_on_page_one():
+    columns = ["num", "sku", "name", "client", "batch", "expiry", "qty"]
+
+    pdf_bytes = render_table_pdf(_a4_preset(), _one_sku_per_position(60), columns=columns)
+
+    assert _page_text(pdf_bytes).count("SKU-") >= 35
+
+
+def test_render_table_pdf_footer_has_page_x_of_y_and_export_date():
+    pdf_bytes = render_table_pdf(_a4_preset(), _one_sku_per_position(60))
+
+    text = _page_text(pdf_bytes)
+    assert "Page 1 of " in text
+    assert "2026/08/02" in text
+
+
+def test_render_table_pdf_hidden_qty_leaves_no_totals():
+    records = [
+        {**INVENTORY_RECORD, "sku": "SKU-A", "position_code": "H-001-A", "quantity": "7"},
+        {**INVENTORY_RECORD, "sku": "SKU-B", "position_code": "H-001-A", "quantity": "8"},
+    ]
+
+    pdf_bytes = render_table_pdf(_a4_preset(), records, view="position", columns=["sku", "name"])
+
+    assert "qty" not in _page_text(pdf_bytes).lower()
+
+
+def test_render_table_pdf_still_renders_an_old_records_only_template(tmp_path):
+    (tmp_path / "template.html").write_text(
+        "{% for r in records %}<p>{{ r.sku }}</p>{% endfor %}", encoding="utf-8"
+    )
+    (tmp_path / "style.css").write_text("@page { size: A4; }", encoding="utf-8")
+    preset = TemplatePreset(
+        name="Old copy",
+        mode="inventory-table",
+        width_mm=210,
+        height_mm=297,
+        template_path=tmp_path / "template.html",
+        stylesheet_path=tmp_path / "style.css",
+    )
+    records = [
+        {**INVENTORY_RECORD, "sku": "SKU-OLD-1"},
+        {**INVENTORY_RECORD, "sku": "SKU-OLD-2"},
+    ]
+
+    text = _page_text(render_table_pdf(preset, records))
+
+    assert "SKU-OLD-1" in text
+    assert "SKU-OLD-2" in text
 
 
 def test_render_records_raises_when_meta_size_does_not_match_rendered_page():

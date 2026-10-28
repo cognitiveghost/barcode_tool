@@ -1,35 +1,38 @@
 /* APP-OWNED FILE - rewritten on every launch, your edits here will be lost.
    Copy this folder to a sibling name and edit the copy. See ../README.txt */
-@page { size: A4; margin: 12mm 10mm; }
+@page {
+  size: A4;
+  margin: 8mm 8mm 10mm 8mm;
+  @bottom-left { content: string(title); font-size: 2.6mm; }
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 2.6mm; }
+}
 html, body { margin: 0; padding: 0; font-family: "JetBrains Mono", monospace; color: #000; }
 
-h1 { font-size: 5mm; margin: 0 0 6mm 0; }
+h1 { font-size: 3.6mm; margin: 0 0 3mm 0; string-set: title content(); }
 
-table { width: 100%; border-collapse: collapse; font-size: 3.4mm; }
+table { width: 100%; border-collapse: collapse; font-size: 2.8mm; }
 /* repeats the header row on every page WeasyPrint paginates the table onto */
 thead { display: table-header-group; }
-/* one <tbody> per SKU group - keeps a merged SKU's rowspan block on one
-   page instead of splitting it across a page break */
-tbody { page-break-inside: avoid; }
-tr { page-break-inside: avoid; }
+/* only single rows are kept whole; a group may break across pages */
+tr { break-inside: avoid; }
 
 th, td {
-  border: 0.2mm solid #000;
-  padding: 2.5mm 2mm;
+  padding: 0.4mm 1mm;
+  border-bottom: 0.15mm solid #999;
   text-align: left;
   vertical-align: middle;
-  overflow: hidden;
 }
 
-th { background: #000; color: #fff; font-weight: 700; text-transform: uppercase; font-size: 3mm; }
+/* no black header fill: it costs toner on every page */
+th { font-size: 2.5mm; font-weight: 700; text-transform: uppercase; border-bottom: 0.3mm solid #000; }
 
-/* Column widths sum to 190mm - the full printable width on A4 with the
-   12mm/10mm @page margin above - so the table fills the page edge to edge
-   instead of being auto-shrunk by the browser to fit. */
-.col-num  { width: 10mm; text-align: center; }
-.col-sku  { width: 32mm; }
-.col-name { width: 48mm; }
-.col-pos  { width: 20mm; }
-.col-qty  { width: 16mm; text-align: center; }
-.col-qr   { width: 24mm; text-align: center; }
-.col-qr img { width: 20mm; height: 20mm; }
+/* each group starts with a heavy rule; the key sits on every row */
+tr.first td { border-top: 0.4mm solid #000; }
+td.c-key { font-weight: 700; }
+tr:not(.first) td.c-key { color: #888; font-weight: 400; }
+tbody:nth-child(even) tr { background: #eee; }
+small { font-size: 2.3mm; font-weight: 400; }
+
+.c-num, .c-qty { width: 10mm; text-align: right; }
+.c-sku_qr, .c-position_qr { width: 13mm; padding: 0.3mm; text-align: center; }
+.c-sku_qr img, .c-position_qr img { width: 12mm; height: 12mm; display: block; margin: 0 auto; }
