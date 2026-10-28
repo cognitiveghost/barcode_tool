@@ -1,0 +1,12 @@
+cognitiveghost/shopify-fulfillment-tool@dc3ae8692e82ae020fe1f01e7f8f4db26756c4bf shared/updater.py shared/update_flow.py shared/relaunch.py
+
+- updater.py: `from shared import relaunch` -> `from . import relaunch`
+- updater.py: `from shared.i18n import N_` -> `from .i18n import N_`
+- update_flow.py: `from shared.i18n import _` -> `from .i18n import _`
+- update_flow.py: `from shared.updater import (...)` -> `from .updater import (...)`
+- update_flow.py: ConfirmDialog import removed; ask() uses QMessageBox (Question icon, Cancel button, accept button labelled verb)
+- update_flow.py: icon import removed, and the `if button.icon().isNull()` / setIcon("download") lines removed (text-only button)
+- update_flow.py: `# noqa: BLE001` on the thread's `except Exception`
+- i18n.py: identity shim (added, not from Fulfilment)
+
+To resync: copy shared/updater.py, shared/update_flow.py and shared/relaunch.py again, then reapply the edits above.
