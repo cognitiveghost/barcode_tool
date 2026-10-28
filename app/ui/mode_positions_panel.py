@@ -80,6 +80,7 @@ class PositionsModePanel(QWidget):
         self.generated_codes: list[str] = []
         self.generated_labels: list[Image.Image] = []
         self._generated_preset: TemplatePreset | None = None
+        self._generated_warehouse: str | None = None
         self._last_skipped_rows: list = []
         self._last_import_rows: list[dict[str, str]] = []
 
@@ -286,6 +287,7 @@ class PositionsModePanel(QWidget):
         self.generated_codes = codes
         self.generated_labels = images
         self._generated_preset = preset
+        self._generated_warehouse = warehouse_prefix
         self.print_button.setEnabled(bool(self.generated_labels))
         return results
 
@@ -364,7 +366,7 @@ class PositionsModePanel(QWidget):
         if not self.generated_labels:
             raise ValueError("Nothing to print - generate labels first")
 
-        warehouse_prefix = self.warehouse_combo.currentData()
+        warehouse_prefix = self._generated_warehouse
         if len(self.generated_codes) > 1:
             description = f"{self.generated_codes[0]}..{self.generated_codes[-1]}"
         else:

@@ -256,6 +256,32 @@ def test_print_uses_preset_from_generate_time_not_live_combo(monkeypatch, tmp_pa
     assert calls[0]["height_mm"] == 38
 
 
+def test_print_uses_the_warehouse_from_generation(monkeypatch):
+    _app()
+    settings = {
+        "warehouses": [
+            {"name": "Main", "prefix": "C001"},
+            {"name": "Second", "prefix": "C002"},
+        ],
+    }
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+    panel.generate()
+
+    panel.warehouse_combo.setCurrentIndex(1)  # user switches to C002 after Generate
+
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.print_batch",
+        lambda *a, **k: calls.append(k),
+    )
+    panel.print_current_labels()
+
+    assert calls[0]["warehouse_prefix"] == "C001"
+
+
 def test_generate_from_rows_builds_labels_from_components():
     _app()
     panel = PositionsModePanel(SETTINGS)

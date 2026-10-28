@@ -198,7 +198,7 @@ def test_import_csv_button_opens_dialog_and_loads_items(monkeypatch):
 
     panel.import_csv_button.click()
 
-    assert [item.sku for item in panel.items] == ["SKU1"]
+    assert [item.sku for item in panel.checked_items()] == ["SKU1"]
 
 
 def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
@@ -219,7 +219,7 @@ def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
 
     panel.import_csv_button.click()
 
-    assert panel.items == []
+    assert panel.checked_items() == []
 
 
 def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):

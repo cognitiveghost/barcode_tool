@@ -87,7 +87,6 @@ def _record_for_item(item: InventoryItem, warehouse_prefix: str, generated_date:
 class InventoryModePanel(QWidget):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
-        self.items: list[InventoryItem] = []
         self._last_skipped_rows: list = []
         self._last_import_rows: list[dict[str, str]] = []
 
@@ -191,7 +190,6 @@ class InventoryModePanel(QWidget):
         if not items:
             raise ValueError("No valid inventory rows found in the imported file")
 
-        self.items = items
         self._populate_table(items)
 
         self._last_skipped_rows = skipped_rows
@@ -219,7 +217,7 @@ class InventoryModePanel(QWidget):
             check_item.setFlags(check_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             check_item.setCheckState(Qt.CheckState.Checked)
             # The row carries its own item: the table can be re-sorted, so the
-            # row index is not a stable key into self.items.
+            # row index is not a stable key.
             check_item.setData(Qt.ItemDataRole.UserRole, item)
             self.items_table.setItem(row_index, 0, check_item)
 
