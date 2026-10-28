@@ -1,4 +1,4 @@
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -45,6 +45,40 @@ def test_drag_snaps_to_1mm(tmp_path):
 
     assert dlg.layout["elements"][0]["x_mm"] == 10
     assert dlg.layout["elements"][0]["y_mm"] == 6
+
+
+def test_drag_that_rounds_to_the_same_mm_snaps_back(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("text")
+    x, y = dlg.layout["elements"][0]["x_mm"], dlg.layout["elements"][0]["y_mm"]
+
+    dlg.items[0].setPos(x + 0.4, y - 0.3)
+    dlg.items[0].commit_drag()
+
+    assert (dlg.items[0].pos().x(), dlg.items[0].pos().y()) == (x, y)
+    assert len(dlg._undo) == 1  # only the add
+
+
+def test_box_interior_does_not_cover_elements_under_it(tmp_path):
+    dlg = _dialog(tmp_path)
+    text = dlg.add_element("text")
+    box = dlg.add_element("box")
+    dlg.set_geometry(box, 0, 0, 100, 80)
+    text_item = dlg.items[text]
+    inside = text_item.mapToScene(text_item.rect().center())
+
+    assert dlg.scene.items(inside)[0] is text_item
+    assert dlg.scene.items(QPointF(0.5, 40))[0] is dlg.items[box]
+
+
+def test_thin_line_has_a_grab_margin(tmp_path):
+    dlg = _dialog(tmp_path)
+    line = dlg.add_element("line")
+    el = dlg.layout["elements"][line]
+
+    near = QPointF(el["x_mm"] + 2, el["y_mm"] + el["thickness_mm"] + 0.7)
+
+    assert dlg.scene.items(near)[0] is dlg.items[line]
 
 
 def test_resize_handle_snaps_and_keeps_min_1mm(tmp_path):
@@ -111,6 +145,31 @@ def test_undo_restores_each_previous_state(tmp_path):
     assert dlg.layout["elements"] == []
     dlg.undo()
     assert dlg.layout["elements"] == []
+
+
+def test_undo_back_to_the_start_is_clean(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("text")
+
+    dlg.undo()
+
+    assert not dlg.dirty
+
+
+def test_tabbing_between_property_fields_keeps_focus(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.show()
+    QTest.qWaitForWindowActive(dlg)
+    dlg.add_element("text")
+    dlg.prop_widgets["x_mm"].setFocus()
+    QApplication.processEvents()
+    dlg.prop_widgets["x_mm"].setValue(7)
+
+    dlg.prop_widgets["y_mm"].setFocus()  # focus-out commits x and rebuilds the form
+    QApplication.processEvents()
+
+    assert dlg.layout["elements"][0]["x_mm"] == 7
+    assert dlg.prop_widgets["y_mm"].hasFocus()
 
 
 def test_scene_is_in_mm(tmp_path):

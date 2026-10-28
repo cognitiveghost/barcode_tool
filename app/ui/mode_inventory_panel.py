@@ -235,6 +235,7 @@ class InventoryModePanel(ModePanel):
         checked = self.checked_items()
         if not self.one_per_unit_checkbox.isChecked():
             return checked
+        check_label_count(sum(item.quantity for item in checked))  # before expanding a huge qty
         return [item for item in checked for _ in range(item.quantity)]
 
     def _on_one_per_unit_toggled(self, checked: bool) -> None:
@@ -278,16 +279,17 @@ class InventoryModePanel(ModePanel):
         dialog.exec()
 
     def _on_print_clicked(self) -> None:
-        items = self._items_to_print()
+        try:
+            items = self._items_to_print()
+            if items:
+                check_label_count(len(items))
+        except ValueError as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+            return
         if not items:
             QMessageBox.warning(
                 self, "Print failed", "Nothing to print - import a CSV and check at least one row"
             )
-            return
-        try:
-            check_label_count(len(items))
-        except ValueError as error:
-            QMessageBox.warning(self, "Print failed", str(error))
             return
         warehouse_prefix = self.warehouse_combo.currentData()
         if not warehouse_prefix:

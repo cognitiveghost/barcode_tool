@@ -7,6 +7,7 @@ A layout is the source of truth (``layout.json``); ``generate`` turns it into th
 from __future__ import annotations
 
 import json
+import math
 import re
 import tempfile
 from contextlib import contextmanager
@@ -101,8 +102,8 @@ def placeholders(content: str) -> list[str]:
 
 
 def _number(value, key: str, minimum: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{key} must be a number, got {value!r}")  # noqa: TRY004 - ValueError is the contract
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{key} must be a number, got {value!r}")
     if value < minimum:
         raise ValueError(f"{key} must be {minimum:g} or more, got {value!r}")
     return value

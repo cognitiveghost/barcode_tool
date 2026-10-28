@@ -153,6 +153,8 @@ def test_normalise_fills_defaults_and_clamps_thickness():
             },
             "x_mm",
         ),
+        ({"width_mm": float("nan")}, "width_mm"),
+        ({"height_mm": float("inf")}, "height_mm"),
     ],
 )
 def test_normalise_rejects(bad, message):

@@ -7,6 +7,7 @@ so ``undo`` can restore it. Items are rebuilt from the layout after each commit.
 from __future__ import annotations
 
 import copy
+import functools
 import json
 from pathlib import Path
 
@@ -17,8 +18,10 @@ from PySide6.QtGui import (
     QBrush,
     QColor,
     QFont,
+    QFontDatabase,
     QKeySequence,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
     QShortcut,
@@ -71,6 +74,7 @@ PALETTE = (
     ("Line", "line"),
 )
 _ALIGN = {"left": Qt.AlignLeft, "center": Qt.AlignHCenter, "right": Qt.AlignRight}
+FONTS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 SIZES = [(150, 100), (100, 150), (100, 100), (100, 50), (68, 38), (58, 40), (50, 30)]
 
 
@@ -94,6 +98,13 @@ def _display_rect(el: dict) -> QRectF:
             else QRectF(0, 0, t, el["h_mm"])
         )
     return QRectF(0, 0, el["w_mm"], el["h_mm"])
+
+
+@functools.cache
+def _register_fonts() -> None:
+    """Load the bundled font once, so the canvas draws text like the printed label."""
+    for ttf in FONTS.glob("*.ttf"):
+        QFontDatabase.addApplicationFont(str(ttf))
 
 
 def _draw_text(
@@ -124,6 +135,21 @@ class ElementItem(QGraphicsRectItem):
         self.element = el
         self.setPos(el["x_mm"], el["y_mm"])
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
+
+    def boundingRect(self) -> QRectF:
+        # A thin line gets a 1 mm grab margin each side, so it can be clicked.
+        if self.element["type"] == "line":
+            return self.rect().adjusted(-1, -1, 1, 1)
+        return super().boundingRect()
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRect(self.boundingRect())
+        if self.element["type"] == "box":
+            # Only the frame is clickable (odd-even fill), so elements inside stay reachable.
+            grab = max(self.element["thickness_mm"], 1)
+            path.addRect(self.rect().adjusted(grab, grab, -grab, -grab))
+        return path
 
     def paint(self, painter, option, widget=None):
         rect = self.rect()
@@ -162,6 +188,7 @@ class ElementItem(QGraphicsRectItem):
     def commit_drag(self) -> None:
         x, y = max(0, round(self.pos().x())), max(0, round(self.pos().y()))
         if (x, y) == (self.element["x_mm"], self.element["y_mm"]):
+            self.setPos(x, y)  # snap back onto the grid
             return
         self.dialog.set_geometry(
             self.index, x, y, self.element["w_mm"], self.element["h_mm"]
@@ -250,6 +277,7 @@ class TemplateBuilderDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
+        _register_fonts()
         self.setWindowTitle("Template builder")
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         self.layout = normalise_layout(layout)
@@ -393,6 +421,7 @@ class TemplateBuilderDialog(QDialog):
         if not self._undo or self.preview_button.isChecked():
             return
         self.layout = json.loads(self._undo.pop())
+        self.dirty = bool(self._undo)  # the stack starts at the layout the dialog opened with
         self._rebuild_scene()
 
     # --- preview and save ---
@@ -527,6 +556,8 @@ class TemplateBuilderDialog(QDialog):
         self._attempt(self._commit, new)
 
     def _refresh_properties(self) -> None:
+        # Tabbing between fields commits and rebuilds the form; keep focus on the same field.
+        focused = next((k for k, w in self.prop_widgets.items() if w.hasFocus()), None)
         if self._props_body is not None:
             self._props_body.deleteLater()
         self.error_label.setVisible(False)
@@ -542,6 +573,8 @@ class TemplateBuilderDialog(QDialog):
             column.addWidget(delete)
         self._props_body = body
         self._props_column.insertWidget(0, body)
+        if focused in self.prop_widgets:
+            self.prop_widgets[focused].setFocus()
 
     def _build_element_form(self, column: QVBoxLayout, index: int) -> None:
         el = self.layout["elements"][index]
