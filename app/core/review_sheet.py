@@ -36,7 +36,15 @@ def build_sheet(records: list[dict], view: str, columns: list[str] | None) -> di
 
     merged: dict[tuple, dict] = {}
     for record in records:
-        key = (record["sku"], record["position_code"], record["client"], record["batch"], record["expiry"])
+        # position_data too: two raw codes can share one display code but need their own QR
+        key = (
+            record["sku"],
+            record["position_code"],
+            record["position_data"],
+            record["client"],
+            record["batch"],
+            record["expiry"],
+        )
         if key in merged:
             merged[key]["qty"] += int(record["quantity"])
             continue

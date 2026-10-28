@@ -1,12 +1,14 @@
+import json
 from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
+import app
 from app.core.review_sheet import pickable_columns
 from app.core.template_renderer import TemplatePreset
-from app.ui.export_sheet_dialog import ExportSheetDialog
+from app.ui.export_sheet_dialog import SHIPPED_TABLE_PRESET, TABLE_PRESET_MODE, ExportSheetDialog
 
 
 def _app():
@@ -104,3 +106,8 @@ def test_garbage_settings_fall_back_to_defaults(store):
 
     store.setValue("inventory-table/columns/position", "")
     assert ExportSheetDialog(presets).options()[2] == pickable_columns("position")
+
+
+def test_shipped_preset_name_matches_its_meta():
+    meta = Path(app.__file__).parent / "templates/examples" / TABLE_PRESET_MODE / "a4-table/meta.json"
+    assert json.loads(meta.read_text())["name"] == SHIPPED_TABLE_PRESET

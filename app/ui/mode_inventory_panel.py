@@ -36,17 +36,12 @@ from app.core.template_renderer import (
     render_table_pdf,
 )
 from app.ui.csv_import_dialog import CsvImportDialog
-from app.ui.export_sheet_dialog import ask_export_options
+from app.ui.export_sheet_dialog import TABLE_PRESET_MODE, ask_export_options
 from app.ui.mode_panel import ModePanel, check_label_count
 from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
 TABLE_COLUMNS = ["", "SKU", "Qty", "Name", "Client", "Position", "Batch", "Expiry"]
-
-# A4 table-report presets live in their own mode folder, never in the
-# per-label "inventory" one - keeps them out of the Print button's Template
-# dropdown, where a whole-list template would render as garbage.
-TABLE_PRESET_MODE = "inventory-table"
 
 _DESCRIPTION_SKU_LIMIT = 5
 

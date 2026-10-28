@@ -18,12 +18,16 @@ from app.core.config import qsettings
 from app.core.review_sheet import SHEET_COLUMNS, VIEW_KEY, VIEWS, pickable_columns
 from app.core.template_renderer import TemplatePreset
 
-SHIPPED_TABLE_PRESET = "A4 review sheet"
-_MODE = "inventory-table"
+SHIPPED_TABLE_PRESET = "A4 review sheet"  # meta.json name of examples/inventory-table/a4-table
+
+# A4 table-report presets live in their own mode folder, never in the
+# per-label "inventory" one - keeps them out of the Print button's Template
+# dropdown, where a whole-list template would render as garbage.
+TABLE_PRESET_MODE = "inventory-table"
 
 
 def _stored_columns(view: str) -> set[str]:
-    raw = qsettings().value(f"{_MODE}/columns/{view}")
+    raw = qsettings().value(f"{TABLE_PRESET_MODE}/columns/{view}")
     allowed = pickable_columns(view)
     picked = {
         key
@@ -43,7 +47,7 @@ class ExportSheetDialog(QDialog):
         self.template_combo = QComboBox()
         for preset in presets:
             self.template_combo.addItem(preset.name, preset)
-        remembered = settings.value(f"{_MODE}/last_template")
+        remembered = settings.value(f"{TABLE_PRESET_MODE}/last_template")
         index = (
             self.template_combo.findText(remembered)
             if isinstance(remembered, str)
@@ -54,7 +58,7 @@ class ExportSheetDialog(QDialog):
         if index >= 0:
             self.template_combo.setCurrentIndex(index)
 
-        stored_view = settings.value(f"{_MODE}/view")
+        stored_view = settings.value(f"{TABLE_PRESET_MODE}/view")
         self._view = stored_view if stored_view in VIEWS else "position"
         self._checked = {view: _stored_columns(view) for view in VIEWS}
 
@@ -118,11 +122,7 @@ class ExportSheetDialog(QDialog):
         self._update_ok()
 
     def _remember_visible(self) -> None:
-        self._checked[self._view] = {
-            key
-            for key in pickable_columns(self._view)
-            if self.column_boxes[key].isChecked()
-        }
+        self._checked[self._view] = set(self._visible_columns())
 
     def _update_ok(self) -> None:
         self.ok_button.setEnabled(bool(self._visible_columns()))
@@ -140,11 +140,11 @@ class ExportSheetDialog(QDialog):
     def accept(self) -> None:
         self._remember_visible()
         settings = qsettings()
-        settings.setValue(f"{_MODE}/last_template", self.template_combo.currentText())
-        settings.setValue(f"{_MODE}/view", self._view)
+        settings.setValue(f"{TABLE_PRESET_MODE}/last_template", self.template_combo.currentText())
+        settings.setValue(f"{TABLE_PRESET_MODE}/view", self._view)
         for view in VIEWS:
             columns = [key for key in SHEET_COLUMNS if key in self._checked[view]]
-            settings.setValue(f"{_MODE}/columns/{view}", ",".join(columns))
+            settings.setValue(f"{TABLE_PRESET_MODE}/columns/{view}", ",".join(columns))
         super().accept()
 
 

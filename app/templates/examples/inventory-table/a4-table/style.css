@@ -34,5 +34,6 @@ tbody:nth-child(even) tr { background: #eee; }
 small { font-size: 2.3mm; font-weight: 400; }
 
 .c-num, .c-qty { width: 10mm; text-align: right; }
+.c-num { padding-right: 2mm; }
 .c-sku_qr, .c-position_qr { width: 13mm; padding: 0.3mm; text-align: center; }
 .c-sku_qr img, .c-position_qr img { width: 12mm; height: 12mm; display: block; margin: 0 auto; }

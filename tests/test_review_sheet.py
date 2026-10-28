@@ -32,6 +32,14 @@ def test_rows_with_different_batch_stay_separate():
     assert len(rows) == 2
 
 
+def test_same_display_position_with_different_raw_code_stays_separate():
+    other = rec("A", "H-001-A") | {"position_data": "C001H1A"}
+    sheet = build_sheet([rec("A", "H-001-A"), other], "position", None)
+
+    rows = [row for group in sheet["groups"] for row in group["rows"]]
+    assert sorted(row["position_data"] for row in rows) == ["C001H-001-A", "C001H1A"]
+
+
 def test_position_view_sorts_naturally_and_groups_by_position():
     sheet = build_sheet(
         [rec("B", "H-10-A"), rec("A", "H-9-A"), rec("B", "H-9-A")], "position", None
