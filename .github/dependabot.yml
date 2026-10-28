@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Low-risk bumps land as one PR; anything that touches rendering or
+      # printing (zebrafy, weasyprint, blabel, pypdfium2, PySide6) gets its
+      # own PR so a regression is easy to pin on one package.
+      dev-tools:
+        patterns: ["pytest", "ruff"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
