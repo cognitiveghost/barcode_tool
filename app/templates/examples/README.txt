@@ -69,11 +69,25 @@ Inventory table reports (A4)
 The "inventory-table" folder next to "positions" and "inventory" holds a
 different kind of preset, used by the "Export table (PDF)" button in
 Inventory mode rather than the Template dropdown or the Print button. It is
-rendered ONCE per export, not once per record: the template gets the whole
-list as `records` (each with the same fields as Inventory mode, above) and
-is expected to build its own HTML `<table>` - see the shipped "a4-table"
-preset. The output is a native multi-page PDF, not a rasterised bitmap, so
-it stays sharp on a regular office printer regardless of page count.
+rendered ONCE per export, not once per record, and the template builds its
+own HTML `<table>` - see the shipped "a4-table" preset ("A4 review sheet").
+The output is a native multi-page PDF, not a rasterised bitmap, so it stays
+sharp on a regular office printer regardless of page count.
+
+The template gets these variables:
+  view, view_label  "position" / "sku" and "By position" / "By SKU"
+  key_label         "Position" or "SKU", the fixed first column
+  generated_date    the export date
+  columns           the chosen columns, as a list of {key, label}
+  groups            one per position (or SKU), each {key, summary, rows}.
+                    summary is "" for a single row, else e.g. "3 rows · qty 6"
+                    ("3 rows" only when the Qty column is hidden)
+  records           the raw records, for older copies of this preset
+
+Each row has: num, sku, position, position_data, name, client, batch, expiry,
+qty. The app does the sorting, the merging (rows equal on SKU, position,
+client, batch and expiry become one, qty summed) and the grouping; the
+template only loops.
 
 label_tools helpers
 ====================

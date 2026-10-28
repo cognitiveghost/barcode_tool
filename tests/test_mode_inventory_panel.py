@@ -26,6 +26,15 @@ def _app():
 
 
 @pytest.fixture(autouse=True)
+def _no_export_dialog(monkeypatch):
+    # A real modal dialog would hang the run.
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.ask_export_options",
+        lambda parent, presets: (presets[0], "position", ["sku"]),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolated_settings_dir(monkeypatch, tmp_path):
     # Prevents the shared_folder="" fallback path from touching the real
     # ~/.barcode_tool directory (and seeding example templates into it)
@@ -792,7 +801,7 @@ def test_export_table_click_cancelling_save_dialog_does_not_render(monkeypatch, 
     render_calls = []
     monkeypatch.setattr(
         "app.ui.mode_inventory_panel.render_table_pdf",
-        lambda preset, records: render_calls.append(records) or b"%PDF-fake",
+        lambda preset, records, **kw: render_calls.append(records) or b"%PDF-fake",
     )
 
     panel.export_table_button.click()
@@ -821,7 +830,7 @@ def test_export_table_click_writes_pdf_for_checked_rows_only(monkeypatch, tmp_pa
     render_calls = []
     monkeypatch.setattr(
         "app.ui.mode_inventory_panel.render_table_pdf",
-        lambda preset, records: render_calls.append(records) or b"%PDF-fake",
+        lambda preset, records, **kw: render_calls.append(records) or b"%PDF-fake",
     )
 
     panel.export_table_button.click()
@@ -840,11 +849,56 @@ def test_export_table_click_without_a_pdf_suffix_appends_one(monkeypatch, tmp_pa
         "app.ui.mode_inventory_panel.QFileDialog.getSaveFileName",
         staticmethod(lambda *a, **k: (str(typed_path), "PDF files (*.pdf)")),
     )
-    monkeypatch.setattr("app.ui.mode_inventory_panel.render_table_pdf", lambda preset, records: b"%PDF-fake")
+    monkeypatch.setattr("app.ui.mode_inventory_panel.render_table_pdf", lambda preset, records, **kw: b"%PDF-fake")
 
     panel.export_table_button.click()
 
     assert (tmp_path / "export.pdf").exists()
+
+
+def test_export_table_passes_view_and_columns_to_renderer(monkeypatch, tmp_path):
+    _app()
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.ask_export_options",
+        lambda parent, presets: (presets[0], "sku", ["position", "qty"]),
+    )
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QFileDialog.getSaveFileName",
+        staticmethod(lambda *a, **k: (str(tmp_path / "o.pdf"), "")),
+    )
+    kwargs = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.render_table_pdf",
+        lambda preset, records, **kw: kwargs.append(kw) or b"%PDF-fake",
+    )
+
+    panel.export_table_button.click()
+
+    assert kwargs == [{"view": "sku", "columns": ["position", "qty"]}]
+
+
+def test_export_table_cancel_in_dialog_renders_nothing(monkeypatch, tmp_path):
+    _app()
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.load_items([{"sku": "SKU1", "position_code": "H011A"}])
+    monkeypatch.setattr("app.ui.mode_inventory_panel.ask_export_options", lambda parent, presets: None)
+    save_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.QFileDialog.getSaveFileName",
+        staticmethod(lambda *a, **k: save_calls.append(1) or ("", "")),
+    )
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.render_table_pdf",
+        lambda preset, records, **kw: render_calls.append(1) or b"x",
+    )
+
+    panel.export_table_button.click()
+
+    assert save_calls == [] and render_calls == []
+    assert list(tmp_path.glob("*.pdf")) == []
 
 
 def test_print_checked_items_large_batch_renders_in_pinned_chunks(monkeypatch):
@@ -854,7 +908,7 @@ def test_print_checked_items_large_batch_renders_in_pinned_chunks(monkeypatch):
     render_calls = []
     monkeypatch.setattr(
         "app.ui.mode_panel.render_records",
-        lambda preset, records: render_calls.append(len(records)) or [f"img{i}" for i in range(len(records))],
+        lambda preset, records, **kw: render_calls.append(len(records)) or [f"img{i}" for i in range(len(records))],
     )
     monkeypatch.setattr(
         "app.ui.mode_inventory_panel.QMessageBox.question",

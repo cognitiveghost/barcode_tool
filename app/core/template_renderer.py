@@ -14,6 +14,7 @@ from PIL import Image, ImageChops, ImageFilter, ImageOps
 
 from app.core import label_tools
 from app.core.config import LOGGER_NAME, atomic_write_text
+from app.core.review_sheet import build_sheet
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "templates" / "examples"
 FONT_CSS = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "fonts.css"
@@ -208,17 +209,25 @@ def find_thermal_black_block(
     return None
 
 
-def render_table_pdf(preset: TemplatePreset, records: list[dict]) -> bytes:
+def render_table_pdf(
+    preset: TemplatePreset,
+    records: list[dict],
+    view: str = "position",
+    columns: list[str] | None = None,
+) -> bytes:
     """Render every record onto one template as a single vector PDF.
 
     Unlike render_records, this is not one-record-per-page: the whole list
-    is handed to the template at once (as `records`) so it can build a real
-    HTML table that WeasyPrint paginates natively across A4 sheets. There is
-    no pdfium/bitmap step, so a multi-page report stays sharp instead of
-    being rasterised at thermal-head resolution.
+    is handed to the template at once so it can build a real HTML table that
+    WeasyPrint paginates natively across A4 sheets. Sorting, merging and
+    grouping come from build_sheet; `records` is still passed so an older
+    copy of the preset that loops over it keeps rendering. There is no
+    pdfium/bitmap step, so a multi-page report stays sharp instead of being
+    rasterised at thermal-head resolution.
     """
     template = jinja2.Template(preset.template_path.read_text(encoding="utf-8"))
-    html = template.render(records=records, label_tools=label_tools)
+    context = build_sheet(records, view, columns)
+    html = template.render(**context, records=records, label_tools=label_tools)
     return _blabel_write_pdf(
         html, target="@memory", extra_stylesheets=(str(FONT_CSS), str(preset.stylesheet_path))
     )

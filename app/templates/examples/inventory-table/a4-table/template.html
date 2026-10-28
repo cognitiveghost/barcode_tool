@@ -1,39 +1,21 @@
 {# APP-OWNED FILE - rewritten on every launch, your edits here will be lost.
    Copy this folder to a sibling name and edit the copy. See ../README.txt #}
-<h1>Inventory export{% if records %} - {{ records[0].generated_date }}{% endif %}</h1>
+<h1>Inventory review · {{ view_label }} · {{ generated_date }}</h1>
 <table>
   <thead>
     <tr>
-      <th class="col-num">#</th>
-      <th class="col-sku">SKU</th>
-      <th class="col-name">Name</th>
-      <th class="col-qr">QR SKU</th>
-      <th class="col-qty">Total qty</th>
-      <th class="col-pos">Position</th>
-      <th class="col-qty">Qty</th>
-      <th class="col-qr">QR Position</th>
+      <th class="c-key">{{ key_label }}</th>
+      {% for c in columns %}<th class="c-{{ c.key }}">{{ c.label }}</th>{% endfor %}
     </tr>
   </thead>
-  {% for sku_group in records|groupby('sku') %}
-  {% set sku_records = sku_group.list %}
-  {% set position_groups = sku_records|groupby('position_code') %}
-  {% set total_qty = sku_records|map(attribute='quantity')|map('int')|sum %}
-  {% set sku_index = loop.index %}
+  {% for group in groups %}
   <tbody>
-    {% for pos_group in position_groups %}
-    {% set pos_records = pos_group.list %}
-    {% set pos_qty = pos_records|map(attribute='quantity')|map('int')|sum %}
-    <tr>
-      {% if loop.first %}
-      <td class="col-num" rowspan="{{ position_groups|length }}">{{ sku_index }}</td>
-      <td class="col-sku" rowspan="{{ position_groups|length }}">{{ sku_group.grouper }}</td>
-      <td class="col-name" rowspan="{{ position_groups|length }}">{{ sku_records[0].name }}</td>
-      <td class="col-qr" rowspan="{{ position_groups|length }}"><img src="{{ label_tools.qr_code(sku_group.grouper) }}"></td>
-      <td class="col-qty" rowspan="{{ position_groups|length }}">{{ total_qty }}</td>
-      {% endif %}
-      <td class="col-pos">{{ pos_records[0].position_code }}</td>
-      <td class="col-qty">{{ pos_qty }}</td>
-      <td class="col-qr"><img src="{{ label_tools.qr_code(pos_records[0].position_data) }}"></td>
+    {% for row in group.rows %}
+    <tr{% if loop.first %} class="first"{% endif %}>
+      <td class="c-key">{{ group.key }}{% if loop.first and group.summary %}<br><small>{{ group.summary }}</small>{% endif %}</td>
+      {% for c in columns %}
+      <td class="c-{{ c.key }}">{% if c.key == "sku_qr" %}<img src="{{ label_tools.qr_code(row.sku) }}">{% elif c.key == "position_qr" %}<img src="{{ label_tools.qr_code(row.position_data) }}">{% else %}{{ row[c.key] }}{% endif %}</td>
+      {% endfor %}
     </tr>
     {% endfor %}
   </tbody>
