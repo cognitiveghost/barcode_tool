@@ -69,9 +69,10 @@ def _quarantine(path: Path, error: Exception, outcome: str, on_recovery: Callabl
     corrupt_path = path.with_name(f"{path.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
     try:
         path.replace(corrupt_path)
+        kept = f"was moved aside as {corrupt_path.name}"
     except OSError:
-        pass
-    message = f"{path.name} could not be read ({error}) and was moved aside as {corrupt_path.name}. {outcome}"
+        kept = "could not be moved aside"
+    message = f"{path} could not be read ({error}) and {kept}. {outcome}"
     logging.getLogger(LOGGER_NAME).warning(message)
     if on_recovery is not None:
         on_recovery(message)
@@ -96,8 +97,9 @@ def _read_json_object(
 
 
 def _read_shared(path: Path, on_recovery: Callable[[str], None] | None) -> dict | None:
-    loaded = _read_json_object(path, on_recovery, "This PC's own warehouses and CSV mappings stay in use.")
-    return None if loaded is None else {**_defaults(), **loaded}
+    return _read_json_object(
+        path, on_recovery, "The shared settings were not used: this PC's own warehouses and CSV mappings stay in use."
+    )
 
 
 def load_settings(path: Path, on_recovery: Callable[[str], None] | None = None) -> dict:
@@ -136,7 +138,9 @@ def sync_shared_settings(
         shared = _read_shared(path, on_recovery)
         if shared is not None:
             for key in SHARED_SETTINGS_KEYS:
-                settings[key] = shared[key]
+                # A key the shared file lacks is not an empty list: keep ours.
+                if key in shared:
+                    settings[key] = shared[key]
     else:
         save_shared_settings(settings, local_path)
     return settings
@@ -165,10 +169,10 @@ def save_shared_settings(
     current = _read_shared(path, on_recovery)
     if current is not None and not changes:
         return
-    if current is None:
-        current = {**_defaults(), **{key: settings[key] for key in SHARED_SETTINGS_KEYS if key in settings}}
-    current.update(changes)
-    save_settings(path, current)
+    # Shared keys the file lacks (or the whole file, when missing or
+    # unreadable) are seeded from `settings`, never from empty defaults.
+    seed = {key: settings[key] for key in SHARED_SETTINGS_KEYS if key in settings}
+    save_settings(path, {**_defaults(), **seed, **(current or {}), **changes})
 
 
 def qsettings() -> QSettings:

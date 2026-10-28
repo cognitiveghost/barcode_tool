@@ -234,6 +234,8 @@ def test_sync_keeps_local_values_when_shared_file_is_corrupt(tmp_path):
 
     assert settings["warehouses"] == [{"name": "Main", "prefix": "C001"}]
     assert len(messages) == 1
+    assert str(shared_dir) in messages[0]
+    assert "shared settings" in messages[0]
     assert list(shared_dir.glob("settings.json.corrupt-*"))
     assert not (shared_dir / "settings.json").exists()
 
@@ -308,3 +310,18 @@ def test_save_shared_settings_is_a_noop_without_a_configured_shared_folder(tmp_p
     save_shared_settings({"shared_folder": "", "warehouses": [{"name": "Main", "prefix": "C001"}]}, local_path)
 
     assert not local_path.exists()
+
+
+def test_shared_file_missing_a_key_never_wipes_or_writes_it_empty(tmp_path):
+    shared_dir = tmp_path / "shared"
+    shared_dir.mkdir()
+    (shared_dir / "settings.json").write_text("{}", encoding="utf-8")
+    local_path = tmp_path / "local" / "settings.json"
+    warehouses = [{"name": "Main", "prefix": "C001"}]
+    settings = {"shared_folder": str(shared_dir), "warehouses": warehouses, "csv_mappings": {"positions": {}}}
+
+    sync_shared_settings(settings, local_path)
+    assert settings["warehouses"] == warehouses
+
+    save_shared_settings(settings, local_path, keys=("csv_mappings",))
+    assert load_settings(shared_dir / "settings.json")["warehouses"] == warehouses

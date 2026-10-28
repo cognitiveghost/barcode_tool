@@ -30,7 +30,7 @@ _MONO_CHAR_WIDTH = 0.6
 # quiet zone is rendered inside the CSS box, so going to 4 costs ~28% of the
 # symbol's printed size, and the codes were verified to read reliably at 2 on
 # the scanner these labels are actually used with. What mattered was not
-# drawing them edge to edge, which put them against the black chip bars.
+# drawing them edge to edge, which put them against the neighbouring chips.
 # ponytail: below spec on purpose - if a future scanner misreads column 3,
 # raise this to 4 and grow the .qr-* boxes to keep the symbol the same size.
 _QR_QUIET_MODULES = 2

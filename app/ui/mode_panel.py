@@ -54,12 +54,12 @@ class ModePanel(QWidget):
         if self.preset_combo.count() == 0:
             self._warn_no_presets(folder)
 
-    def _warn_no_presets(self, shared_folder) -> None:
+    def _warn_no_presets(self, folder) -> None:
         window = self.window()
         if not hasattr(window, "statusBar"):
             return  # not embedded in a QMainWindow (e.g. a standalone test)
         window.statusBar().showMessage(
-            f"No label templates found in '{shared_folder}' - check the "
+            f"No label templates found in '{folder}' - check the "
             "shared folder's templates directory or your permissions."
         )
 

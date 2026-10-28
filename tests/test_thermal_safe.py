@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -66,5 +67,4 @@ def test_shipped_thermal_preset_has_no_black_block(folder):
 @pytest.mark.parametrize("folder", THERMAL_FOLDERS)
 def test_shipped_thermal_css_has_no_black_background(folder):
     css = (folder / "style.css").read_text(encoding="utf-8")
-    assert "background: #000" not in css
-    assert "background:#000" not in css
+    assert not re.search(r"background(-color)?\s*:\s*(#000\b|#000000\b|black\b)", css, re.IGNORECASE)
