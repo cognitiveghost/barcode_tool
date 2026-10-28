@@ -142,8 +142,8 @@ save writes those empties back for everyone. The dialog always sends `warehouses
   the existing "no shared file yet: seed it from this PC" path rewrites it on the next launch or
   save, which is the recovery.
 - **Save**: `save_shared_settings(settings, local_path, keys=SHARED_SETTINGS_KEYS,
-  on_recovery=None)` writes `settings[k]` for each `k` in `keys` over the shared file's current
-  content. If the shared file is missing or unreadable (quarantined + `on_recovery`), it starts
+  on_recovery=None)` writes `settings[k]` for each `k` in `keys` that `settings` contains, over
+  the shared file's current content (a key absent from `settings` is left alone, as today). If the shared file is missing or unreadable (quarantined + `on_recovery`), it starts
   from `settings` for **all** shared keys instead of from empty defaults, so a save never writes
   empties. `settings` must carry `shared_folder` (it locates the file). The seed call inside
   `sync_shared_settings` becomes `save_shared_settings(settings, local_path)`.
