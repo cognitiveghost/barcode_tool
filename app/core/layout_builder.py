@@ -8,6 +8,21 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+from PIL import Image
+
+from app.core.config import atomic_write_text
+from app.core.template_renderer import (
+    DEFAULT_DPI,
+    EXAMPLES_ROOT,
+    TemplatePreset,
+    find_thermal_black_block,
+    list_presets,
+    render_records,
+)
 
 MODES = ("positions", "inventory")
 ELEMENT_TYPES = ("text", "barcode", "qr", "box", "line")
@@ -292,3 +307,95 @@ def generate(layout: dict) -> dict[str, str]:
         "style.css": _style_css(layout),
         "meta.json": json.dumps(meta, ensure_ascii=False),
     }
+
+
+def is_app_owned(mode: str, slug: str) -> bool:
+    return (EXAMPLES_ROOT / mode / slug).is_dir()
+
+
+def load_layout(folder: Path) -> dict:
+    try:
+        data = json.loads((folder / "layout.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f"Could not read layout.json in {folder.name}: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError(f"layout.json in {folder.name} must be an object")  # noqa: TRY004 - ValueError is the contract
+    return normalise_layout(data)
+
+
+def check_save_target(shared_folder: Path, layout: dict, edit_folder: Path | None) -> Path:
+    layout = normalise_layout(layout)
+    name, mode = layout["name"], layout["mode"]
+    slug = slugify(name)
+    if not slug:
+        raise ValueError("Use at least one letter or digit in the name.")
+    mode_dir = Path(shared_folder) / "templates" / mode
+    if edit_folder is not None:
+        if is_app_owned(mode, edit_folder.name):
+            raise ValueError(f'"{name}" is a built-in template - save a copy under another name.')
+        target = edit_folder
+    else:
+        if is_app_owned(mode, slug):
+            raise ValueError(f'"{name}" is a built-in template name - pick another name.')
+        if (mode_dir / slug).exists():
+            raise ValueError(f'A template folder named "{slug}" already exists - pick another name.')
+        target = mode_dir / slug
+    for preset in list_presets(shared_folder, mode):
+        if preset.name == name and preset.template_path.parent.resolve() != target.resolve():
+            raise ValueError(f'Another template is already called "{name}" - pick another name.')
+    return target
+
+
+def save_layout(layout: dict, folder: Path) -> None:
+    layout = normalise_layout(layout)
+    atomic_write_text(folder / "layout.json", json.dumps(layout, indent=2, ensure_ascii=False) + "\n")
+    for filename, content in generate(layout).items():
+        atomic_write_text(folder / filename, content)
+
+
+def sample_for(mode: str, record: dict | None) -> dict:
+    return {**SAMPLE_RECORDS[mode], **(record or {})}
+
+
+@contextmanager
+def _temp_preset(layout: dict):
+    layout = normalise_layout(layout)
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        save_layout(layout, folder)
+        yield TemplatePreset(
+            layout["name"],
+            layout["mode"],
+            layout["width_mm"],
+            layout["height_mm"],
+            folder / "template.html",
+            folder / "style.css",
+        )
+
+
+def render_sample(layout: dict, record: dict | None) -> Image.Image:
+    with _temp_preset(layout) as preset:
+        return render_records(preset, [sample_for(preset.mode, record)])[0]
+
+
+def black_block_mm(layout: dict, record: dict | None) -> tuple[float, float] | None:
+    with _temp_preset(layout) as preset:
+        found = find_thermal_black_block(preset, [sample_for(preset.mode, record)])
+    if found is None:
+        return None
+    _, x, y = found
+    return round(x * 25.4 / DEFAULT_DPI, 1), round(y * 25.4 / DEFAULT_DPI, 1)
+
+
+def regenerate_shipped() -> list[Path]:
+    folders = []
+    for mode in MODES:
+        for layout_path in sorted((EXAMPLES_ROOT / mode).glob("*/layout.json")):
+            folder = layout_path.parent
+            save_layout(load_layout(folder), folder)
+            folders.append(folder)
+    return folders
+
+
+if __name__ == "__main__":
+    regenerate_shipped()

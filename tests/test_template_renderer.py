@@ -517,3 +517,27 @@ def test_render_records_raises_when_meta_size_does_not_match_rendered_page():
 
     with pytest.raises(ValueError, match="Mismatched"):
         render_records(mismatched_preset, [{"code": "A1", "label": "A1"}])
+
+
+def test_seeding_copies_layout_json_when_shipped_and_skips_it_when_absent(tmp_path, monkeypatch):
+    examples = tmp_path / "examples"
+    shipped = examples / "inventory" / "mine"
+    shipped.mkdir(parents=True)
+    (shipped / "meta.json").write_text(json.dumps({"name": "Mine", "width_mm": 10, "height_mm": 10}))
+    (shipped / "template.html").write_text("<div></div>")
+    (shipped / "style.css").write_text("")
+    (shipped / "layout.json").write_text('{"name": "Mine"}')
+    plain = examples / "inventory" / "plain"
+    plain.mkdir()
+    (plain / "meta.json").write_text(json.dumps({"name": "Plain", "width_mm": 10, "height_mm": 10}))
+    (plain / "template.html").write_text("<div></div>")
+    (plain / "style.css").write_text("")
+    (examples / "README.txt").write_text("readme")
+    monkeypatch.setattr("app.core.template_renderer.EXAMPLES_ROOT", examples)
+    shared = tmp_path / "shared"
+
+    presets = list_presets(shared, "inventory")
+
+    assert [p.name for p in presets] == ["Mine", "Plain"]
+    assert (shared / "templates" / "inventory" / "mine" / "layout.json").read_text() == '{"name": "Mine"}'
+    assert not (shared / "templates" / "inventory" / "plain" / "layout.json").exists()

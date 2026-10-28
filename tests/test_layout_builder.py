@@ -7,8 +7,18 @@ import pytest
 import zxingcpp
 
 from app.core import label_tools
-from app.core.layout_builder import SAMPLE_RECORDS, generate, normalise_layout, slugify
-from app.core.template_renderer import TemplatePreset, render_records
+from app.core.layout_builder import (
+    SAMPLE_RECORDS,
+    black_block_mm,
+    check_save_target,
+    generate,
+    load_layout,
+    normalise_layout,
+    render_sample,
+    save_layout,
+    slugify,
+)
+from app.core.template_renderer import TemplatePreset, list_presets, render_records
 
 
 def _inventory_base(elements):
@@ -243,3 +253,93 @@ def test_generated_preset_renders_and_scans(tmp_path: Path):
 )
 def test_slugify(name, slug):
     assert slugify(name) == slug
+
+
+def _label(name: str, elements: list | None = None) -> dict:
+    return _inventory_base(elements or []) | {"name": name}
+
+
+def _shared_preset(shared: Path, folder: str, name: str) -> None:
+    preset_dir = shared / "templates" / "inventory" / folder
+    preset_dir.mkdir(parents=True)
+    (preset_dir / "meta.json").write_text(
+        json.dumps({"name": name, "width_mm": 68, "height_mm": 38})
+    )
+    (preset_dir / "template.html").write_text("<div></div>")
+    (preset_dir / "style.css").write_text("")
+
+
+def test_check_save_target_new_uses_slug(tmp_path):
+    target = check_save_target(tmp_path, _label("My label"), None)
+
+    assert target == tmp_path / "templates" / "inventory" / "my-label"
+
+
+def test_check_save_target_refuses_app_owned(tmp_path):
+    with pytest.raises(ValueError, match="built-in"):
+        check_save_target(tmp_path, _label("Default"), None)
+
+
+def test_check_save_target_refuses_existing_folder(tmp_path):
+    (tmp_path / "templates" / "inventory" / "my-label").mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="already exists"):
+        check_save_target(tmp_path, _label("My label"), None)
+
+
+def test_check_save_target_refuses_duplicate_display_name(tmp_path):
+    _shared_preset(tmp_path, "other", "My label")
+
+    with pytest.raises(ValueError, match="already called"):
+        check_save_target(tmp_path, _label("My label"), None)
+
+
+def test_check_save_target_edit_keeps_folder_on_rename(tmp_path):
+    edit_folder = tmp_path / "templates" / "inventory" / "mine"
+    _shared_preset(tmp_path, "mine", "Mine")
+
+    assert check_save_target(tmp_path, _label("Renamed"), edit_folder) == edit_folder
+    assert check_save_target(tmp_path, _label("Mine"), edit_folder) == edit_folder
+
+
+def test_check_save_target_refuses_edit_of_app_owned(tmp_path):
+    edit_folder = tmp_path / "templates" / "inventory" / "default"
+
+    with pytest.raises(ValueError, match="built-in"):
+        check_save_target(tmp_path, _label("Anything"), edit_folder)
+
+
+def test_check_save_target_refuses_nameless(tmp_path):
+    with pytest.raises(ValueError, match="letter or digit"):
+        check_save_target(tmp_path, _label("!!!"), None)
+
+
+def test_save_layout_then_list_presets_and_load_round_trip(tmp_path):
+    layout = _label("My label", [{"type": "box", "x_mm": 1, "y_mm": 1, "w_mm": 10, "h_mm": 10}])
+    folder = check_save_target(tmp_path, layout, None)
+
+    save_layout(layout, folder)
+
+    assert "My label" in [p.name for p in list_presets(tmp_path, "inventory")]
+    assert load_layout(folder) == normalise_layout(layout)
+    assert list(folder.glob("*.tmp")) == []
+
+
+def test_black_block_mm_flags_stacked_lines():
+    stacked = [
+        {"type": "line", "x_mm": 2, "y_mm": 10 + 0.5 * i, "w_mm": 60, "h_mm": 0, "thickness_mm": 0.5}
+        for i in range(20)
+    ]
+    found = black_block_mm(_label("Stack", stacked), SAMPLE_RECORDS["inventory"])
+
+    assert found is not None
+    x, y = found
+    assert 2 <= x <= 62 and 10 <= y <= 17
+    assert black_block_mm(_label("Box", [{"type": "box", "x_mm": 1, "y_mm": 1, "w_mm": 30, "h_mm": 20}]), SAMPLE_RECORDS["inventory"]) is None
+
+
+def test_render_sample_size():
+    image = render_sample(_label("Blank"), SAMPLE_RECORDS["inventory"])
+
+    assert abs(image.width - round(68 / 25.4 * 203)) <= 1
+    assert abs(image.height - round(38 / 25.4 * 203)) <= 1

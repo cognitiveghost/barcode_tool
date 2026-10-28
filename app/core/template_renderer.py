@@ -31,7 +31,7 @@ BLACK_BLOCK_PX = 24
 
 HIDE_CODES_CSS = "img { visibility: hidden !important; }"
 
-SEEDED_FILES = ("template.html", "style.css", "meta.json")
+SEEDED_FILES = ("template.html", "style.css", "meta.json", "layout.json")
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -117,9 +117,10 @@ def _seed_examples(mode_dir: Path, mode: str) -> None:
             target_dir = mode_dir / example_dir.name
             target_dir.mkdir(parents=True, exist_ok=True)
             for filename in SEEDED_FILES:
-                _write_if_changed(
-                    target_dir / filename, (example_dir / filename).read_text(encoding="utf-8")
-                )
+                source = example_dir / filename
+                if not source.exists():
+                    continue
+                _write_if_changed(target_dir / filename, source.read_text(encoding="utf-8"))
         _write_if_changed(
             mode_dir / "README.txt", (EXAMPLES_ROOT / "README.txt").read_text(encoding="utf-8")
         )
