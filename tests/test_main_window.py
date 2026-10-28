@@ -3,8 +3,10 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QMenu
 
 import app.ui.main_window as main_window_module
+from app import __version__
 from app.core.config import DEFAULT_SETTINGS, save_settings
 from app.ui.main_window import MainWindow
+from app.vendor.updater.updater import NOT_CHECKED, newer_release
 
 
 def _app():
@@ -38,12 +40,6 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
     monkeypatch.setattr("app.ui.main_window.qsettings", lambda: store)
     monkeypatch.setattr("app.ui.mode_panel.qsettings", lambda: store)
-
-
-def test_main_window_title():
-    _app()
-    window = MainWindow()
-    assert window.windowTitle() == "Barcode Label Generator"
 
 
 def test_main_window_hosts_positions_and_inventory_tabs():
@@ -266,3 +262,39 @@ def test_corrupted_settings_warning_reaches_the_log_file(tmp_path, monkeypatch):
     log_path = tmp_path / "logs" / f"{socket.gethostname()}.log"
     assert log_path.exists()
     assert "could not be read" in log_path.read_text(encoding="utf-8")
+
+
+def test_title_shows_the_version():
+    _app()
+    window = MainWindow()
+    assert window.windowTitle() == f"Barcode Label Generator {__version__}"
+
+
+def test_update_button_sits_hidden_in_the_menu_bar_corner():
+    _app()
+    window = MainWindow()
+    assert window.menuBar().cornerWidget() is window._update_button
+    assert window._update_button.isHidden()
+
+
+def test_check_for_updates_in_dev_explains_in_status_bar():
+    _app()
+    window = MainWindow()
+    help_menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "Help")
+    action = next(a for a in help_menu.actions() if a.text() == "Check for updates...")
+    action.trigger()
+    assert window.statusBar().currentMessage() == NOT_CHECKED
+
+
+def test_update_identity_matches_release_assets():
+    payload = {"tag_name": "0.2.0", "html_url": "page", "assets": [
+        {"name": "BarcodeTool-0.2.0.zip", "browser_download_url": "z"},
+        {"name": "BarcodeTool-0.2.0.zip.sha256", "browser_download_url": "s"},
+    ]}
+    release = newer_release(main_window_module.UPDATE_APP, "0.1.0", fetch=lambda url: payload)
+    assert (release.zip_url, release.sha_url) == ("z", "s")
+    old_style = {**payload, "assets": [
+        {"name": "BarcodeTool-windows-0.2.0.zip", "browser_download_url": "z"}]}
+    assert newer_release(main_window_module.UPDATE_APP, "0.1.0", fetch=lambda url: old_style) is None
+    assert main_window_module.UPDATE_APP.repo == "cognitiveghost/barcode_tool"
+    assert main_window_module.UPDATE_APP.exe_name == "BarcodeTool.exe"
