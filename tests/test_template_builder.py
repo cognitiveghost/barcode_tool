@@ -1,6 +1,12 @@
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QGraphicsPixmapItem,
+    QLabel,
+    QMessageBox,
+)
 
 from app.core.layout_builder import mode_fields, new_layout
 from app.ui.template_builder import SIZES, TemplateBuilderDialog, _ResizeHandle
@@ -200,3 +206,147 @@ def test_mode_is_shown_read_only(tmp_path):
     texts = [label.text() for label in dlg.findChildren(QLabel)]
 
     assert "Mode: inventory" in texts
+
+
+def _modals(monkeypatch, answer=QMessageBox.No):
+    """Record QMessageBox calls instead of opening a modal; ``answer`` is the question reply."""
+    seen = {"warning": [], "question": []}
+
+    def warning(parent, title, text, *args, **kwargs):
+        seen["warning"].append(text)
+        return QMessageBox.Ok
+
+    def question(parent, title, text, *args, **kwargs):
+        seen["question"].append(text)
+        return answer
+
+    monkeypatch.setattr(QMessageBox, "warning", warning)
+    monkeypatch.setattr(QMessageBox, "question", question)
+    return seen
+
+
+def test_preview_shows_the_rendered_bitmap_and_locks_editing(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("qr")
+
+    dlg.set_preview(True)
+
+    pixmaps = [i for i in dlg.scene.items() if isinstance(i, QGraphicsPixmapItem)]
+    assert len(pixmaps) == 1
+    rect = pixmaps[0].sceneBoundingRect()
+    assert abs(rect.width() - dlg.layout["width_mm"]) < 0.2
+    assert abs(rect.height() - dlg.layout["height_mm"]) < 0.2
+    assert not dlg.items[0].isVisible()
+    assert all(not button.isEnabled() for button in dlg.palette_buttons)
+
+    dlg.set_preview(False)
+
+    assert not [i for i in dlg.scene.items() if isinstance(i, QGraphicsPixmapItem)]
+    assert dlg.items[0].isVisible()
+    assert all(button.isEnabled() for button in dlg.palette_buttons)
+
+
+def test_edits_are_ignored_while_previewing(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("qr")
+    dlg.set_preview(True)
+
+    dlg.delete_selected()
+
+    assert len(dlg.layout["elements"]) == 1
+
+
+def test_preview_error_goes_to_status_line(tmp_path):
+    dlg = TemplateBuilderDialog(
+        new_layout("inventory"), tmp_path, sample={"name": "Гвинт"}
+    )
+    dlg.add_element("barcode")
+    dlg.update_element(0, field="name")
+
+    dlg.set_preview(True)
+
+    assert dlg.status_label.text()
+    assert not dlg.preview_button.isChecked()
+
+
+def test_save_writes_folder_and_accepts(tmp_path, monkeypatch):
+    seen = _modals(monkeypatch)
+    dlg = _dialog(tmp_path)
+    dlg.name_edit.setText("My label")
+    dlg.name_edit.editingFinished.emit()
+    dlg.add_element("qr")
+
+    folder = dlg.save()
+
+    assert folder == tmp_path / "templates" / "inventory" / "my-label"
+    for name in ("layout.json", "template.html", "style.css", "meta.json"):
+        assert (folder / name).is_file()
+    assert dlg.saved_name == "My label"
+    assert dlg.result() == QDialog.Accepted
+    assert seen == {"warning": [], "question": []}
+
+
+def test_save_refuses_app_owned_name(tmp_path, monkeypatch):
+    seen = _modals(monkeypatch)
+    dlg = _dialog(tmp_path)
+    dlg.name_edit.setText("Default")
+    dlg.name_edit.editingFinished.emit()
+    dlg.add_element("qr")
+
+    assert dlg.save() is None
+    assert len(seen["warning"]) == 1
+    assert "built-in" in seen["warning"][0]
+
+
+def test_save_with_empty_name_is_refused(tmp_path, monkeypatch):
+    seen = _modals(monkeypatch)
+    dlg = _dialog(tmp_path)
+    dlg.name_edit.setText("")
+    dlg.add_element("qr")
+
+    assert dlg.save() is None
+    assert seen["warning"] == ["Give the template a name first."]
+    assert not (tmp_path / "templates").exists()
+
+
+def test_save_warns_on_black_block_and_respects_cancel(tmp_path, monkeypatch):
+    seen = _modals(monkeypatch, answer=QMessageBox.No)
+    dlg = _dialog(tmp_path)
+    dlg.name_edit.setText("Heavy")
+    dlg.name_edit.editingFinished.emit()
+    for i in range(8):
+        dlg.add_element("line")
+        dlg.update_element(i, x_mm=5, y_mm=5 + i * 0.5, w_mm=20, thickness_mm=0.5)
+
+    assert dlg.save() is None
+    assert len(seen["question"]) == 1
+    assert not (tmp_path / "templates" / "inventory" / "heavy").exists()
+
+    seen_yes = _modals(monkeypatch, answer=QMessageBox.Yes)
+    folder = dlg.save()
+
+    assert folder is not None and (folder / "layout.json").is_file()
+    assert len(seen_yes["question"]) == 1
+
+
+def test_close_with_unsaved_changes_asks_and_can_stay(tmp_path, monkeypatch):
+    seen = _modals(monkeypatch, answer=QMessageBox.No)
+    dlg = _dialog(tmp_path)
+    dlg.show()
+    dlg.add_element("qr")
+
+    dlg.reject()
+
+    assert len(seen["question"]) == 1
+    assert dlg.isVisible()
+
+
+def test_clean_dialog_closes_without_asking(tmp_path, monkeypatch):
+    seen = _modals(monkeypatch)
+    dlg = _dialog(tmp_path)
+    dlg.show()
+
+    dlg.reject()
+
+    assert seen["question"] == []
+    assert not dlg.isVisible()

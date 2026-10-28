@@ -10,8 +10,20 @@ import copy
 import json
 from pathlib import Path
 
+from barcode.errors import BarcodeError
+from PIL.ImageQt import ImageQt
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QFont, QKeySequence, QPainter, QPen, QShortcut
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QShortcut,
+    QTransform,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,22 +31,28 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGraphicsItem,
+    QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from app.core.layout_builder import (
+    black_block_mm,
+    check_save_target,
     default_element,
     mode_fields,
     normalise_layout,
+    render_sample,
     sample_for,
+    save_layout,
 )
 
 INK = QColor("#000")
@@ -243,6 +261,7 @@ class TemplateBuilderDialog(QDialog):
         self.selected: int | None = None
         self.items: list[ElementItem] = []
         self._handle: _ResizeHandle | None = None
+        self._preview_item: QGraphicsPixmapItem | None = None
         self._undo: list[str] = []
 
         self.scene = QGraphicsScene(self)
@@ -261,8 +280,16 @@ class TemplateBuilderDialog(QDialog):
         self.height_spin = _spin(10, 300, self.layout["height_mm"], step=1)
         self.width_spin.editingFinished.connect(self._on_size_edited)
         self.height_spin.editingFinished.connect(self._on_size_edited)
+        self.preview_button = QPushButton("Preview")
+        self.preview_button.setCheckable(True)
+        self.preview_button.clicked.connect(self.set_preview)
         self.undo_button = QPushButton("Undo")
         self.undo_button.clicked.connect(lambda _=False: self.undo())
+        self.save_button = QPushButton("Save template")
+        self.save_button.clicked.connect(lambda _=False: self.save())
+        self.status_label = QLabel()
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet("color: #d93025;")
         self.top_bar = QHBoxLayout()
         for widget in (
             QLabel("Name"),
@@ -273,7 +300,9 @@ class TemplateBuilderDialog(QDialog):
             self.width_spin,
             QLabel("H"),
             self.height_spin,
+            self.preview_button,
             self.undo_button,
+            self.save_button,
         ):
             self.top_bar.addWidget(widget)
         self.top_bar.addStretch(1)
@@ -288,10 +317,12 @@ class TemplateBuilderDialog(QDialog):
         self._props_column.addWidget(self.error_label)
         self._props_column.addStretch(1)
         palette = QVBoxLayout()
+        self.palette_buttons: list[QPushButton] = []
         for label, type_ in PALETTE:
             button = QPushButton(label)
             button.clicked.connect(lambda _=False, t=type_: self.add_element(t))
             palette.addWidget(button)
+            self.palette_buttons.append(button)
         palette.addStretch(1)
         body = QHBoxLayout()
         body.addLayout(palette)
@@ -300,12 +331,15 @@ class TemplateBuilderDialog(QDialog):
         root = QVBoxLayout(self)
         root.addLayout(self.top_bar)
         root.addLayout(body, 1)
+        root.addWidget(self.status_label)
 
         self._rebuild_scene()
 
     # --- mutations: every one goes through _commit ---
 
     def _commit(self, new_layout: dict) -> None:
+        if self.preview_button.isChecked():  # editing is locked while previewing
+            return
         layout = normalise_layout(new_layout)  # raises before any state changes
         self._undo.append(json.dumps(self.layout))
         self.layout = layout
@@ -356,10 +390,102 @@ class TemplateBuilderDialog(QDialog):
         self._commit(new)
 
     def undo(self) -> None:
-        if not self._undo:
+        if not self._undo or self.preview_button.isChecked():
             return
         self.layout = json.loads(self._undo.pop())
         self._rebuild_scene()
+
+    # --- preview and save ---
+
+    def set_preview(self, on: bool) -> None:
+        if self._preview_item is not None:
+            self.scene.removeItem(self._preview_item)
+            self._preview_item = None
+        self.status_label.clear()
+        shown = False
+        if on:
+            try:
+                image = render_sample(self.layout, self.sample)
+            except (ValueError, OSError, BarcodeError) as error:
+                self.status_label.setText(f"Preview failed: {error}")
+            else:
+                item = QGraphicsPixmapItem(
+                    QPixmap.fromImage(ImageQt(image.convert("L")))
+                )
+                item.setTransform(
+                    QTransform.fromScale(
+                        self.layout["width_mm"] / image.width,
+                        self.layout["height_mm"] / image.height,
+                    )
+                )
+                self.scene.addItem(item)
+                self._preview_item = item
+                shown = True
+        self.preview_button.setChecked(shown)
+        for item in self.items:
+            item.setVisible(not shown)
+        for widget in (
+            *self.palette_buttons,
+            self.name_edit,
+            self.size_combo,
+            self.width_spin,
+            self.height_spin,
+            self.undo_button,
+            self.properties_panel,
+        ):
+            widget.setEnabled(not shown)
+
+    def save(self) -> Path | None:
+        self._on_name_edited()
+        if not self.layout["name"].strip():
+            QMessageBox.warning(
+                self, "Can't save template", "Give the template a name first."
+            )
+            return None
+        try:
+            folder = check_save_target(
+                self.shared_folder, self.layout, self.edit_folder
+            )
+            black = black_block_mm(self.layout, self.sample)
+        except (ValueError, OSError, BarcodeError) as error:
+            QMessageBox.warning(self, "Can't save template", str(error))
+            return None
+        if black is not None:
+            x, y = black
+            answer = QMessageBox.question(
+                self,
+                "Solid black area",
+                f"The label has a solid black area at x={x} mm, y={y} mm. Large black "
+                "areas leave residue on the thermal print head. Save anyway?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return None
+        try:
+            save_layout(self.layout, folder)
+        except OSError as error:
+            QMessageBox.warning(self, "Can't save template", str(error))
+            return None
+        self.saved_name = self.layout["name"]
+        self.dirty = False
+        self.accept()
+        return folder
+
+    def reject(self) -> None:
+        if (
+            self.dirty
+            and QMessageBox.question(
+                self,
+                "Discard changes",
+                "Discard unsaved changes?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            != QMessageBox.Yes
+        ):
+            return
+        super().reject()
 
     # --- selection and drawing ---
 
