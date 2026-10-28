@@ -7,9 +7,10 @@ from pathlib import Path
 
 import jinja2
 import pypdfium2 as pdfium
+import weasyprint
 from blabel import LabelWriter
 from blabel.Blabel import write_pdf as _blabel_write_pdf
-from PIL import Image
+from PIL import Image, ImageChops, ImageFilter, ImageOps
 
 from app.core import label_tools
 from app.core.config import LOGGER_NAME, atomic_write_text
@@ -22,6 +23,12 @@ FONT_CSS = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "fonts.
 # Thermal heads are bilevel, so the greyscale render is thresholded here
 # rather than left for the driver to dither.
 DEFAULT_DPI = 203
+
+# 3 mm at 203 dpi. A solid area this size or bigger leaves thermal-head residue,
+# so thermal presets must not have one (barcodes and QRs are the only dense black).
+BLACK_BLOCK_PX = 24
+
+HIDE_CODES_CSS = "img { visibility: hidden !important; }"
 
 SEEDED_FILES = ("template.html", "style.css", "meta.json")
 
@@ -132,6 +139,8 @@ def render_records(
     preset: TemplatePreset,
     records: list[dict],
     dpi: int = DEFAULT_DPI,
+    *,
+    hide_codes: bool = False,
 ) -> list[Image.Image]:
     writer = LabelWriter(
         str(preset.template_path),
@@ -140,7 +149,9 @@ def render_records(
         encoding="utf-8",
         label_tools=label_tools,
     )
-    pdf_bytes = writer.write_labels(records, target="@memory")
+    # visibility keeps the layout identical while leaving the code area white.
+    extra = (weasyprint.CSS(string=HIDE_CODES_CSS),) if hide_codes else ()
+    pdf_bytes = writer.write_labels(records, target="@memory", extra_stylesheets=extra)
 
     pdf = pdfium.PdfDocument(pdf_bytes)
     images = []
@@ -152,6 +163,49 @@ def render_records(
         _check_aspect_ratio(preset, images[0])
 
     return images
+
+
+def find_black_block(image: Image.Image, size_px: int = BLACK_BLOCK_PX) -> tuple[int, int] | None:
+    """Return the top-left (x, y) of a fully black size_px square, or None.
+
+    Used to catch solid black areas that would leave thermal-head residue.
+    Pillow only. The image is padded with white so a block touching the label
+    edge is still found, and the rank filter's edge replication cannot fake one.
+    """
+    pad = size_px
+    grey = ImageOps.expand(image.convert("L"), border=pad, fill=255)
+    if size_px % 2 == 0:
+        # A size_px square is black iff two overlapping (size_px-1) windows are.
+        # Max over each window; a zero in the combined image marks a 2x2 group.
+        m = grey.filter(ImageFilter.MaxFilter(size_px - 1))
+        w, h = m.size
+        combined = ImageChops.lighter(
+            ImageChops.lighter(m.crop((0, 0, w - 1, h - 1)), m.crop((1, 0, w, h - 1))),
+            ImageChops.lighter(m.crop((0, 1, w - 1, h)), m.crop((1, 1, w, h))),
+        )
+        radius = (size_px - 2) // 2
+    else:
+        combined = grey.filter(ImageFilter.MaxFilter(size_px))
+        radius = size_px // 2
+
+    if combined.getextrema()[0] != 0:
+        return None
+    left, top, _, _ = combined.point(lambda v: 255 if v == 0 else 0).getbbox()
+    return left - radius - pad, top - radius - pad
+
+
+def find_thermal_black_block(
+    preset: TemplatePreset, records: list[dict]
+) -> tuple[int, int, int] | None:
+    """Return (record_index, x, y) of the first solid black block, or None.
+
+    Renders with code images hidden, so only the template's own fills count.
+    """
+    for index, image in enumerate(render_records(preset, records, hide_codes=True)):
+        found = find_black_block(image)
+        if found is not None:
+            return (index, *found)
+    return None
 
 
 def render_table_pdf(preset: TemplatePreset, records: list[dict]) -> bytes:
