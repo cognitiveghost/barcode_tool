@@ -45,11 +45,11 @@ html, body { margin: 0; padding: 0; }
   height: 39mm;
 }
 
-/* position - the largest element, inverted so it reads across the aisle */
+/* position - the largest element, outlined so it reads across the aisle */
 .position-name {
   left: 3mm; top: 71mm; width: 144mm; height: 26mm;
-  background: #000;
-  color: #fff;
+  border: 0.5mm solid #000;
+  color: #000;
   font-weight: 700;
   letter-spacing: 1mm;
 }
