@@ -49,7 +49,7 @@ class InventoryItem:
 def _is_date(value: str) -> bool:
     for fmt in _DATE_FORMATS:
         try:
-            datetime.strptime(value, fmt)  # noqa: DTZ007 (validation only, the value is never stored)
+            datetime.strptime(value, fmt)
         except ValueError:
             continue
         return True
