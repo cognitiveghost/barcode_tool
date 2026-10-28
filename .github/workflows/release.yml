@@ -1,11 +1,19 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+# Two dispatches at once would compute the same version.
+concurrency: release
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -32,10 +40,36 @@ jobs:
       - name: Run the rest of the suite
         run: pytest -v -k "not test_shipped_default_actually_applies_the_bundled_font"
 
-  build-windows:
+  version:
     needs: test
+    # Releases come from main only. On any other branch this job skips, and
+    # so do build-windows and release below.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Pick the next version from the tags
+        id: next
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          version=$(python scripts/release_version.py next "$BUMP")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: version
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -46,6 +80,8 @@ jobs:
         run: |
           C:\msys64\usr\bin\pacman.exe -S --noconfirm --needed mingw-w64-x86_64-pango
       - run: pip install -r requirements.txt pyinstaller
+      - name: Stamp the release version
+        run: python scripts/release_version.py stamp app/__init__.py $env:VERSION
       - name: Build with PyInstaller
         run: >
           pyinstaller --name BarcodeTool --onedir --noconfirm
@@ -57,35 +93,43 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item -Recurse -Path "C:\msys64\mingw64\bin" -Destination "dist\BarcodeTool\gtk-dlls"
+          Copy-Item -Recurse -Path "C:\msys64\mingw64\etc" -Destination "dist\BarcodeTool\gtk-dlls\etc"
       - name: Zip artifact
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist\BarcodeTool\*" -DestinationPath "BarcodeTool-windows-${{ github.event.release.tag_name }}.zip"
-      - name: Upload to release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "BarcodeTool-windows-${{ github.event.release.tag_name }}.zip" --clobber
-
-  build-linux:
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+          Compress-Archive -Path "dist\BarcodeTool\*" -DestinationPath "BarcodeTool-$env:VERSION.zip"
+      - uses: actions/upload-artifact@v7
         with:
-          python-version: "3.11"
-      - run: pip install -r requirements.txt pyinstaller
-      - name: Build with PyInstaller
-        run: >
-          pyinstaller --name BarcodeTool --onedir --noconfirm
-          --add-data "app/templates/examples:app/templates/examples"
-          --add-data "app/assets/fonts:app/assets/fonts"
-          --collect-data blabel
-          app/main.py
-      - name: Tar artifact
-        run: tar -czf "BarcodeTool-linux-${{ github.event.release.tag_name }}.tar.gz" -C dist BarcodeTool
-      - name: Upload to release
+          name: bundle
+          path: BarcodeTool-*.zip
+          # Already a zip; re-compressing several hundred MB buys nothing.
+          compression-level: 0
+
+  release:
+    needs: [version, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: bundle
+      - name: Checksum
+        run: sha256sum "BarcodeTool-$VERSION.zip" > "BarcodeTool-$VERSION.zip.sha256"
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: BarcodeTool-${{ needs.version.outputs.version }}.zip
+      - name: Create the release
+        # Last, so a failed build or attestation leaves no tag behind.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "BarcodeTool-linux-${{ github.event.release.tag_name }}.tar.gz" --clobber
+        run: >
+          gh release create "$VERSION"
+          "BarcodeTool-$VERSION.zip" "BarcodeTool-$VERSION.zip.sha256"
+          --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+          --title "$VERSION" --generate-notes --latest

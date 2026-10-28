@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -12,10 +12,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from app import __version__
 from app.core.config import (
     LOGGER_NAME,
     default_settings_path,
@@ -30,8 +32,12 @@ from app.ui.mode_inventory_panel import InventoryModePanel
 from app.ui.mode_positions_panel import PositionsModePanel
 from app.ui.settings_window import SettingsWindow
 from app.ui.theme import DEFAULT_THEME, THEMES, apply_theme
+from app.vendor.updater.update_flow import UpdateFlow
+from app.vendor.updater.updater import AppIdentity
 
 logger = logging.getLogger(LOGGER_NAME)
+
+UPDATE_APP = AppIdentity("cognitiveghost/barcode_tool", "BarcodeTool", "BarcodeTool.exe")
 
 
 class _ShareBanner(QWidget):
@@ -56,7 +62,7 @@ class _ShareBanner(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Barcode Label Generator")
+        self.setWindowTitle(f"Barcode Label Generator {__version__}")
         self.resize(900, 600)
 
         self._settings_path = default_settings_path()
@@ -123,6 +129,21 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _checked, t=theme: self._set_theme(t))
             theme_group.addAction(action)
             view_menu.addAction(action)
+
+        self._update_button = QToolButton()
+        self.menuBar().setCornerWidget(self._update_button, Qt.Corner.TopRightCorner)
+        self._update_flow = UpdateFlow(
+            self,
+            self._update_button,
+            lambda text: self.statusBar().showMessage(text, 10000),
+            UPDATE_APP,
+            __version__,
+        )
+        help_menu = self.menuBar().addMenu("Help")
+        check_action = QAction("Check for updates...", self)
+        check_action.triggered.connect(self._update_flow.check_now)
+        help_menu.addAction(check_action)
+        self._update_flow.start()
 
     def _warn_settings_recovered(self, message: str) -> None:
         QMessageBox.warning(self, "Settings problem", message)
