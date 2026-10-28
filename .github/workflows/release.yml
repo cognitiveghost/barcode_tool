@@ -9,6 +9,9 @@ on:
         options: [patch, minor, major]
         default: patch
 
+# Two dispatches at once would compute the same version.
+concurrency: release
+
 permissions:
   contents: read
 

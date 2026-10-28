@@ -37,4 +37,5 @@ The Windows build bundles the entire MSYS2 `mingw64/bin` directory
 (everything `pacman` installed for the Pango package tree) into
 `gtk-dlls/`, rather than a hand-picked minimal DLL set — a bigger zip than
 strictly necessary, but correct without manually tracing the dependency
-graph. Revisit if artifact size becomes a problem.
+graph. `mingw64/etc` is copied to `gtk-dlls/etc` too (`app/main.py` points
+fontconfig at `gtk-dlls/etc/fonts`). Revisit if artifact size becomes a problem.

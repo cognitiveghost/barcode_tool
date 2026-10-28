@@ -2,8 +2,8 @@ import time
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication, QToolButton, QWidget
+from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtWidgets import QApplication, QMessageBox, QToolButton, QWidget
 
 from app.vendor.updater import relaunch, update_flow, updater
 from app.vendor.updater.updater import AppIdentity, Release
@@ -232,3 +232,16 @@ def test_updater_thread_reports_errors_translated(monkeypatch):
     real = update_flow.Updater(APP, "2.3.1", Path("/nowhere"))
     args = _wait(real.failed, lambda: real.check(manual=True))
     assert args == ["Could not reach GitHub: timed out"]
+
+
+@pytest.mark.parametrize("pick_verb", [True, False])
+def test_ask_returns_whether_the_verb_button_was_clicked(pick_verb):
+    _app()
+
+    def click():
+        box = QApplication.activeModalWidget()
+        verb = next(b for b in box.buttons() if b.text() == "Update")
+        (verb if pick_verb else box.button(QMessageBox.Cancel)).click()
+
+    QTimer.singleShot(0, click)
+    assert update_flow.ask(None, title="t", body="b", verb="Update") is pick_verb

@@ -9,4 +9,6 @@ cognitiveghost/shopify-fulfillment-tool@dc3ae8692e82ae020fe1f01e7f8f4db26756c4bf
 - update_flow.py: `# noqa: BLE001` on the thread's `except Exception`
 - i18n.py: identity shim (added, not from Fulfilment)
 
+Comments and the User-Agent are upstream's wording ("sidebar button", "shared/") and are left as is.
+
 To resync: copy shared/updater.py, shared/update_flow.py and shared/relaunch.py again, then reapply the edits above.
