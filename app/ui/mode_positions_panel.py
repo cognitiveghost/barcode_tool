@@ -12,13 +12,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QProgressDialog,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
-from app.core.config import qsettings, shared_folder
 from app.core.position_generator import (
     NUMBER_MAX,
     codes_from_csv_rows,
@@ -26,8 +23,9 @@ from app.core.position_generator import (
     generate_position_codes,
 )
 from app.core.print_batch import BatchResult, print_batch
-from app.core.template_renderer import TemplatePreset, list_presets, render_records
+from app.core.template_renderer import TemplatePreset
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.mode_panel import ModePanel
 from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
@@ -55,10 +53,6 @@ POSITION_CSV_FIELDS = [
     ("height", "Height (optional)"),
 ]
 
-LARGE_BATCH_THRESHOLD = 200
-_RENDER_CHUNK_SIZE = 50
-_ESTIMATED_SECONDS_PER_LABEL = 0.02
-
 
 class GenerationCancelled(Exception):
     """Raised when the operator declines the large-batch confirmation or
@@ -74,7 +68,12 @@ def _validate_position_mapping(mapping: dict[str, int | None]) -> str | None:
     return "Map Position code, or both Corridor and Number"
 
 
-class PositionsModePanel(QWidget):
+class PositionsModePanel(ModePanel):
+    MODE = "positions"
+    LARGE_BATCH_TITLE = "Generate a large batch?"
+    LARGE_BATCH_VERB = "Generate"
+    CANCELLED = GenerationCancelled
+
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.generated_codes: list[str] = []
@@ -152,44 +151,6 @@ class PositionsModePanel(QWidget):
         ):
             edit.textChanged.connect(self._update_count_preview)
         self._update_count_preview()
-
-    def refresh_from_settings(self, settings: dict) -> None:
-        self._settings = settings
-
-        self.warehouse_combo.clear()
-        for warehouse in settings.get("warehouses", []):
-            self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
-
-        folder = shared_folder(settings)
-        self.preset_combo.clear()
-        for preset in list_presets(folder, "positions"):
-            self.preset_combo.addItem(preset.name, preset)
-        remembered_name = qsettings().value("positions/last_template")
-        if remembered_name is not None:
-            index = self.preset_combo.findText(remembered_name)
-            if index >= 0:
-                self.preset_combo.setCurrentIndex(index)
-
-        if self.preset_combo.count() == 0:
-            self._warn_no_presets(folder)
-
-    def _warn_no_presets(self, shared_folder) -> None:
-        window = self.window()
-        if not hasattr(window, "statusBar"):
-            return  # not embedded in a QMainWindow (e.g. a standalone test)
-        window.statusBar().showMessage(
-            f"No label templates found in '{shared_folder}' - check the "
-            "shared folder's templates directory or your permissions."
-        )
-
-    def _show_status(self, message: str) -> None:
-        window = self.window()
-        if not hasattr(window, "statusBar"):
-            return  # not embedded in a QMainWindow (e.g. a standalone test)
-        window.statusBar().showMessage(message, 5000)
-
-    def _on_preset_selected(self, index: int) -> None:
-        qsettings().setValue("positions/last_template", self.preset_combo.itemText(index))
 
     def _on_generate_clicked(self) -> None:
         try:
@@ -278,10 +239,7 @@ class PositionsModePanel(QWidget):
             }
             for code in codes
         ]
-        if len(records) > LARGE_BATCH_THRESHOLD:
-            images = self._render_with_progress(preset, records)
-        else:
-            images = render_records(preset, records)
+        images = self.render_labels(preset, records)
         results = list(zip(codes, images))
 
         self.generated_codes = codes
@@ -290,36 +248,6 @@ class PositionsModePanel(QWidget):
         self._generated_warehouse = warehouse_prefix
         self.print_button.setEnabled(bool(self.generated_labels))
         return results
-
-    def _render_with_progress(
-        self, preset: TemplatePreset, records: list[dict]
-    ) -> list[Image.Image]:
-        estimated_minutes = max(1, round(len(records) * _ESTIMATED_SECONDS_PER_LABEL / 60))
-        answer = QMessageBox.question(
-            self,
-            "Generate a large batch?",
-            f"Generate {len(records)} labels? This will take about "
-            f"{estimated_minutes} minute{'s' if estimated_minutes != 1 else ''}.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            raise GenerationCancelled()
-
-        progress = QProgressDialog("Rendering labels...", "Cancel", 0, len(records), self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(0)
-
-        images: list[Image.Image] = []
-        try:
-            for start in range(0, len(records), _RENDER_CHUNK_SIZE):
-                if progress.wasCanceled():
-                    raise GenerationCancelled()
-                chunk = records[start : start + _RENDER_CHUNK_SIZE]
-                images.extend(render_records(preset, chunk))
-                progress.setValue(min(start + _RENDER_CHUNK_SIZE, len(records)))
-        finally:
-            progress.close()
-        return images
 
     def _update_count_preview(self) -> None:
         try:
