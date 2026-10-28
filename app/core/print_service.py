@@ -6,7 +6,7 @@ from PIL import Image
 from PIL.ImageQt import ImageQt
 from PySide6.QtCore import QMarginsF, QSizeF
 from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPixmap
-from PySide6.QtPrintSupport import QPrinter
+from PySide6.QtPrintSupport import QPrinter, QPrinterInfo
 
 from app.core.zpl_print_service import print_labels_zpl
 
@@ -24,6 +24,8 @@ def print_labels(
     printer_name: str | None = None,
     output_pdf_path: Path | None = None,
 ) -> None:
+    if printer_name and output_pdf_path is None and QPrinterInfo.printerInfo(printer_name).isNull():
+        raise OSError(f"Printer '{printer_name}' is not installed on this PC - check Settings.")
     orientation = _page_orientation(width_mm, height_mm)
     # QPageSize's custom-size definition is always canonical/portrait (the
     # smaller side first); setPageOrientation does the actual landscape
@@ -45,14 +47,20 @@ def print_labels(
     elif printer_name:
         printer.setPrinterName(printer_name)
 
-    painter = QPainter(printer)
-    for index, image in enumerate(images):
-        if index > 0:
-            printer.newPage()
-        pixmap = QPixmap.fromImage(ImageQt(image))
-        target = painter.viewport()
-        painter.drawPixmap(target, pixmap, pixmap.rect())
-    painter.end()
+    if not printer.isValid():
+        raise OSError(f"Printer '{printer_name or '(system default)'}' is not ready - check Settings.")
+    painter = QPainter()
+    if not painter.begin(printer):
+        raise OSError(f"Could not start printing to '{printer_name or '(system default)'}'.")
+    try:
+        for index, image in enumerate(images):
+            if index > 0:
+                printer.newPage()
+            pixmap = QPixmap.fromImage(ImageQt(image))
+            target = painter.viewport()
+            painter.drawPixmap(target, pixmap, pixmap.rect())
+    finally:
+        painter.end()
 
 
 def printer_display(settings: dict) -> str:
