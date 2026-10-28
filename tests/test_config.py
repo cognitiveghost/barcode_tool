@@ -77,7 +77,20 @@ def test_load_settings_recovers_from_corrupt_json(tmp_path):
 
     assert loaded == DEFAULT_SETTINGS
     assert not path.exists()
-    assert (tmp_path / "settings.json.corrupt").read_text(encoding="utf-8") == "{not valid json"
+    (kept,) = tmp_path.glob("settings.json.corrupt-*")
+    assert kept.read_text(encoding="utf-8") == "{not valid json"
+
+
+def test_load_settings_never_overwrites_an_earlier_corrupt_copy(tmp_path):
+    earlier = tmp_path / "settings.json.corrupt-20260101-000000"
+    earlier.write_text("first incident", encoding="utf-8")
+    path = tmp_path / "settings.json"
+    path.write_text("{not valid json", encoding="utf-8")
+
+    load_settings(path)
+
+    assert earlier.read_text(encoding="utf-8") == "first incident"
+    assert len(list(tmp_path.glob("settings.json.corrupt-*"))) == 2
 
 
 def test_load_settings_calls_on_recovery_with_a_message(tmp_path):
@@ -203,6 +216,90 @@ def test_save_shared_settings_only_touches_the_keys_it_is_given(tmp_path):
     shared = load_settings(shared_dir / "settings.json")
     assert shared["warehouses"] == [{"name": "Main", "prefix": "C001"}]
     assert shared["csv_mappings"] == {"positions": {"sig": {"sku": 0}}}
+
+
+def test_sync_keeps_local_values_when_shared_file_is_corrupt(tmp_path):
+    shared_dir = tmp_path / "shared"
+    shared_dir.mkdir()
+    (shared_dir / "settings.json").write_text("{oops", encoding="utf-8")
+    local_path = tmp_path / "local" / "settings.json"
+    settings = {
+        "shared_folder": str(shared_dir),
+        "warehouses": [{"name": "Main", "prefix": "C001"}],
+        "csv_mappings": {},
+    }
+    messages = []
+
+    sync_shared_settings(settings, local_path, on_recovery=messages.append)
+
+    assert settings["warehouses"] == [{"name": "Main", "prefix": "C001"}]
+    assert len(messages) == 1
+    assert list(shared_dir.glob("settings.json.corrupt-*"))
+    assert not (shared_dir / "settings.json").exists()
+
+
+def test_save_shared_settings_seeds_from_settings_when_shared_file_is_corrupt(tmp_path):
+    shared_dir = tmp_path / "shared"
+    shared_dir.mkdir()
+    (shared_dir / "settings.json").write_text("{oops", encoding="utf-8")
+    local_path = tmp_path / "local" / "settings.json"
+    warehouses = [{"name": "Main", "prefix": "C001"}]
+    mappings = {"positions": {"sig": {"sku": 0}}}
+    messages = []
+
+    save_shared_settings(
+        {"shared_folder": str(shared_dir), "warehouses": warehouses, "csv_mappings": mappings},
+        local_path,
+        keys=("warehouses",),
+        on_recovery=messages.append,
+    )
+
+    shared = load_settings(shared_dir / "settings.json")
+    assert shared["warehouses"] == warehouses
+    assert shared["csv_mappings"] == mappings
+    assert len(messages) == 1
+
+
+def test_save_shared_settings_writes_only_the_given_keys(tmp_path):
+    shared_dir = tmp_path / "shared"
+    local_path = tmp_path / "local" / "settings.json"
+    save_settings(
+        shared_dir / "settings.json",
+        {
+            **DEFAULT_SETTINGS,
+            "warehouses": [{"name": "A", "prefix": "C001"}],
+            "csv_mappings": {"positions": {"m1": {"sku": 1}}},
+        },
+    )
+
+    save_shared_settings(
+        {
+            "shared_folder": str(shared_dir),
+            "warehouses": [{"name": "B", "prefix": "C002"}],
+            "csv_mappings": {"positions": {"m2": {"sku": 2}}},
+        },
+        local_path,
+        keys=("warehouses",),
+    )
+
+    shared = load_settings(shared_dir / "settings.json")
+    assert shared["warehouses"] == [{"name": "B", "prefix": "C002"}]
+    assert shared["csv_mappings"] == {"positions": {"m1": {"sku": 1}}}
+
+
+def test_save_shared_settings_with_no_keys_leaves_the_file_alone(tmp_path):
+    shared_dir = tmp_path / "shared"
+    local_path = tmp_path / "local" / "settings.json"
+    save_settings(shared_dir / "settings.json", {**DEFAULT_SETTINGS, "warehouses": [{"name": "A", "prefix": "C001"}]})
+    before = (shared_dir / "settings.json").read_bytes()
+
+    save_shared_settings(
+        {"shared_folder": str(shared_dir), "warehouses": [{"name": "B", "prefix": "C002"}]},
+        local_path,
+        keys=(),
+    )
+
+    assert (shared_dir / "settings.json").read_bytes() == before
 
 
 def test_save_shared_settings_is_a_noop_without_a_configured_shared_folder(tmp_path):

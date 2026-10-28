@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 from pathlib import Path
 
@@ -39,6 +40,7 @@ class SettingsWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self._settings_path = settings_path
+        self._warehouses_at_open = copy.deepcopy(settings.get("warehouses", []))
 
         self.shared_folder_edit = QLineEdit(settings.get("shared_folder", ""))
         browse_button = QPushButton("Browse...")
@@ -230,12 +232,14 @@ class SettingsWindow(QDialog):
             full_settings = load_settings(self._settings_path)
             full_settings.update(self.get_current_settings())
             save_settings(self._settings_path, full_settings)
+            # Only write warehouses this dialog changed, so a stale open dialog
+            # cannot overwrite another PC's edit to the shared list.
+            warehouses_edited = full_settings["warehouses"] != self._warehouses_at_open
             save_shared_settings(
-                {
-                    "shared_folder": full_settings["shared_folder"],
-                    "warehouses": full_settings["warehouses"],
-                },
+                full_settings,
                 self._settings_path,
+                keys=("warehouses",) if warehouses_edited else (),
+                on_recovery=lambda message: QMessageBox.warning(self, "Settings problem", message),
             )
         except OSError as error:
             QMessageBox.warning(self, "Cannot save", str(error))
