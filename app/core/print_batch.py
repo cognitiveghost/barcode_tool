@@ -4,7 +4,7 @@ import logging
 import re
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PIL import Image
@@ -134,7 +134,7 @@ def print_batch(
 
 
 def _archive_path(folder: Path, mode: str, warehouse_prefix: str, description: str) -> Path:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
     filename = (
         f"{timestamp}_{mode}_{sanitize_filename_component(warehouse_prefix)}"
@@ -158,7 +158,7 @@ def prune_archive(settings: dict) -> int:
     if not printed_pdfs_dir.exists():
         return 0
 
-    cutoff = datetime.now(timezone.utc).timestamp() - retention_days * 86400
+    cutoff = datetime.now(UTC).timestamp() - retention_days * 86400
     pruned = 0
     try:
         month_dirs = [p for p in printed_pdfs_dir.iterdir() if p.is_dir()]

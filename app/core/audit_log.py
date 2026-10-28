@@ -4,7 +4,7 @@ import csv
 import getpass
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 
@@ -37,7 +37,7 @@ def append_print_log(
 ) -> None:
     audit_dir = Path(shared_folder) / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc)
+    timestamp = datetime.now(UTC)
     user = sanitize_filename_component(getpass.getuser())
     # Timestamp + pid alone can collide: two prints from the same process in
     # quick succession may land in the same clock tick (coarser than a

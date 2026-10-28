@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from barcode.errors import BarcodeError
@@ -314,7 +314,7 @@ class InventoryModePanel(QWidget):
             )
             return
 
-        generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
+        generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
 
         def render_page(index: int) -> Image.Image:
             record = _record_for_item(checked[index], warehouse_prefix, generated_date)
@@ -354,7 +354,7 @@ class InventoryModePanel(QWidget):
                 "No label template selected - check the shared folder's templates directory"
             )
 
-        generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
+        generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
         records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
         if len(records) > LARGE_BATCH_THRESHOLD:
             images = self._render_with_progress(preset, records)
@@ -430,7 +430,7 @@ class InventoryModePanel(QWidget):
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
 
-        generated_date = datetime.now(timezone.utc).astimezone().strftime("%Y/%m/%d")
+        generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
         records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
         try:
             pdf_bytes = render_table_pdf(table_presets[0], records)

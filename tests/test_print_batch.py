@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -84,7 +84,7 @@ def test_successful_print_archives_and_logs_with_no_warnings(monkeypatch, tmp_pa
     assert result.archive_path.exists()
     # One physical-print call (output_pdf_path=None) + one archive call.
     assert calls == [None, result.archive_path]
-    assert result.archive_path.parent.name == datetime.now(timezone.utc).strftime("%Y-%m")
+    assert result.archive_path.parent.name == datetime.now(UTC).strftime("%Y-%m")
 
 
 def test_archive_path_is_named_from_mode_prefix_and_description(monkeypatch, tmp_path):
@@ -227,7 +227,7 @@ def _make_archive_file(base: Path, month: str, filename: str, age_days: int) -> 
     path = base / "printed_pdfs" / month / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"pdf")
-    mtime = (datetime.now(timezone.utc) - timedelta(days=age_days)).timestamp()
+    mtime = (datetime.now(UTC) - timedelta(days=age_days)).timestamp()
     import os
     os.utime(path, (mtime, mtime))
     return path
