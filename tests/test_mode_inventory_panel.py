@@ -270,7 +270,13 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
     warehouse_names = [panel.warehouse_combo.itemText(i) for i in range(panel.warehouse_combo.count())]
     preset_names = [panel.preset_combo.itemText(i) for i in range(panel.preset_combo.count())]
     assert warehouse_names == ["Second"]
-    assert preset_names == ["80x80mm", "Default 150x100mm", "QR-SKU 68x38mm"]
+    assert preset_names == [
+        "80x80mm",
+        "Default 150x100mm",
+        "Pallet 150x100mm",
+        "Product 68x38mm",
+        "QR-SKU 68x38mm",
+    ]
 
 
 def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
