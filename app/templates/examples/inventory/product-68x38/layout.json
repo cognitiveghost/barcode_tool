@@ -1,0 +1,46 @@
+{
+  "name": "Product 68x38mm",
+  "mode": "inventory",
+  "width_mm": 68,
+  "height_mm": 38,
+  "elements": [
+    {
+      "type": "text",
+      "x_mm": 2,
+      "y_mm": 1.5,
+      "w_mm": 64,
+      "h_mm": 11,
+      "content": "{name}",
+      "max_mm": 4.5,
+      "min_mm": 2,
+      "wrap": true,
+      "bold": true,
+      "uppercase": false,
+      "align": "center",
+      "letter_spacing_mm": 0
+    },
+    {
+      "type": "barcode",
+      "x_mm": 3,
+      "y_mm": 13.5,
+      "w_mm": 62,
+      "h_mm": 15,
+      "field": "sku"
+    },
+    {
+      "type": "text",
+      "x_mm": 2,
+      "y_mm": 29.5,
+      "w_mm": 64,
+      "h_mm": 7,
+      "content": "{sku}",
+      "max_mm": 5,
+      "min_mm": 2,
+      "wrap": false,
+      "bold": true,
+      "uppercase": false,
+      "align": "center",
+      "letter_spacing_mm": 0.2
+    }
+  ]
+}

@@ -7,6 +7,7 @@ from barcode.errors import BarcodeError
 from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from app.core.config import shared_folder
+from app.core.config import qsettings, shared_folder
 from app.core.inventory_import import (
     INVENTORY_CSV_FIELDS,
     InventoryItem,
@@ -91,6 +92,12 @@ class InventoryModePanel(ModePanel):
         self.preset_combo.activated.connect(self._on_preset_selected)
         self.refresh_from_settings(settings)
 
+        self.one_per_unit_checkbox = QCheckBox("One label per unit (Qty)")
+        self.one_per_unit_checkbox.setChecked(
+            qsettings().value("inventory/one_label_per_unit", False, type=bool)
+        )
+        self.one_per_unit_checkbox.toggled.connect(self._on_one_per_unit_toggled)
+
         self.result_label = QLabel("0 items imported")
         self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
         self.result_label.linkActivated.connect(self._show_skipped_rows_detail)
@@ -126,7 +133,7 @@ class InventoryModePanel(ModePanel):
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
-        form.addRow("Template", self.preset_combo)
+        form.addRow("Template", self._template_row())
 
         select_buttons = QHBoxLayout()
         select_buttons.addWidget(self.select_all_button)
@@ -134,6 +141,7 @@ class InventoryModePanel(ModePanel):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(self.one_per_unit_checkbox)
         layout.addWidget(self.import_csv_button)
         layout.addWidget(self.result_label)
         layout.addLayout(select_buttons)
@@ -212,6 +220,27 @@ class InventoryModePanel(ModePanel):
                 checked.append(check_item.data(Qt.ItemDataRole.UserRole))
         return checked
 
+    def sample_record(self) -> dict | None:
+        checked = self.checked_items()
+        if checked:
+            item = checked[0]
+        elif self.items_table.rowCount():
+            item = self.items_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        else:
+            return None
+        generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
+        return _record_for_item(item, self.warehouse_combo.currentData() or "", generated_date)
+
+    def _items_to_print(self) -> list[InventoryItem]:
+        checked = self.checked_items()
+        if not self.one_per_unit_checkbox.isChecked():
+            return checked
+        check_label_count(sum(item.quantity for item in checked))  # before expanding a huge qty
+        return [item for item in checked for _ in range(item.quantity)]
+
+    def _on_one_per_unit_toggled(self, checked: bool) -> None:
+        qsettings().setValue("inventory/one_label_per_unit", checked)
+
     def _apply_filter(self, text: str) -> None:
         needle = text.strip().lower()
         for row in range(self.items_table.rowCount()):
@@ -250,16 +279,17 @@ class InventoryModePanel(ModePanel):
         dialog.exec()
 
     def _on_print_clicked(self) -> None:
-        checked = self.checked_items()
-        if not checked:
+        try:
+            items = self._items_to_print()
+            if items:
+                check_label_count(len(items))
+        except ValueError as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+            return
+        if not items:
             QMessageBox.warning(
                 self, "Print failed", "Nothing to print - import a CSV and check at least one row"
             )
-            return
-        try:
-            check_label_count(len(checked))
-        except ValueError as error:
-            QMessageBox.warning(self, "Print failed", str(error))
             return
         warehouse_prefix = self.warehouse_combo.currentData()
         if not warehouse_prefix:
@@ -278,12 +308,12 @@ class InventoryModePanel(ModePanel):
         generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
 
         def render_page(index: int) -> Image.Image:
-            record = _record_for_item(checked[index], warehouse_prefix, generated_date)
+            record = _record_for_item(items[index], warehouse_prefix, generated_date)
             return render_records(preset, [record])[0]
 
         try:
             dialog = PrintPreviewDialog(
-                count=len(checked),
+                count=len(items),
                 render_page=render_page,
                 preset=preset,
                 settings=self._settings,
@@ -295,14 +325,14 @@ class InventoryModePanel(ModePanel):
             QMessageBox.warning(self, "Print failed", str(error))
             return
         if dialog.exec():
-            unit = "item" if len(checked) == 1 else "items"
-            self._show_status(f"Printed {len(checked)} {unit}")
+            unit = "item" if len(items) == 1 else "items"
+            self._show_status(f"Printed {len(items)} {unit}")
 
     def print_checked_items(
         self, copies: int = 1, output_pdf_path: Path | None = None
     ) -> BatchResult:
-        checked = self.checked_items()
-        if not checked:
+        items = self._items_to_print()
+        if not items:
             raise ValueError("Nothing to print - import a CSV and check at least one row")
 
         warehouse_prefix = self.warehouse_combo.currentData()
@@ -316,10 +346,10 @@ class InventoryModePanel(ModePanel):
             )
 
         generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
-        records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
+        records = [_record_for_item(item, warehouse_prefix, generated_date) for item in items]
         images = self.render_labels(preset, records)
 
-        description = _describe_skus([item.sku for item in checked])
+        description = _describe_skus([item.sku for item in items])
         return print_batch(
             images,
             preset,

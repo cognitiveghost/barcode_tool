@@ -7,6 +7,7 @@ from PIL import Image
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QProgressDialog
 
+from app.core.layout_builder import new_layout, save_layout
 from app.ui.mode_positions_panel import GenerationCancelled, PositionsModePanel
 
 SETTINGS = {
@@ -968,3 +969,110 @@ def test_last_used_template_is_restored_on_next_construction(tmp_path, monkeypat
     second = PositionsModePanel(settings)
 
     assert second.preset_combo.currentText() == "Preset B"
+
+
+def _builder_preset(shared_folder: Path, slug: str, name: str) -> None:
+    _write_preset(shared_folder, "positions", slug, name, 150, 100)
+    layout = {**new_layout("positions"), "name": name}
+    layout_path = Path(shared_folder) / "templates" / "positions" / slug / "layout.json"
+    layout_path.write_text(json.dumps(layout))
+
+
+@pytest.fixture
+def builder_calls(monkeypatch):
+    """Stands in for the builder dialog: records its arguments, saves "Mine", accepts."""
+    calls = []
+
+    class FakeBuilder:
+        def __init__(self, layout, shared_folder, *, edit_folder=None, sample=None, parent=None):
+            calls.append({"layout": layout, "edit_folder": edit_folder, "sample": sample})
+            self._layout = layout
+            self._shared_folder = shared_folder
+            self.saved_name = None
+
+        def exec(self):
+            folder = Path(self._shared_folder) / "templates" / "positions" / "mine"
+            folder.mkdir(parents=True, exist_ok=True)
+            save_layout({**self._layout, "name": "Mine"}, folder)
+            self.saved_name = "Mine"
+            return 1
+
+    monkeypatch.setattr("app.ui.mode_panel.TemplateBuilderDialog", FakeBuilder)
+    return calls
+
+
+def test_template_actions_enabled_for_builder_presets_only(tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "hand", "Hand", 100, 50)
+    _builder_preset(tmp_path, "custom", "Custom")
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    def actions_for(name):
+        panel.preset_combo.setCurrentIndex(panel.preset_combo.findText(name))
+        return panel.edit_action.isEnabled(), panel.duplicate_action.isEnabled()
+
+    assert panel.new_action.isEnabled()
+    assert actions_for("Default 150x100mm") == (False, True)
+    assert actions_for("Hand") == (False, False)
+    assert actions_for("Custom") == (True, True)
+
+
+def test_new_opens_builder_in_panel_mode_and_selects_saved_preset(tmp_path, builder_calls):
+    _app()
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    panel.new_action.trigger()
+
+    assert builder_calls[0]["layout"]["mode"] == "positions"
+    assert builder_calls[0]["edit_folder"] is None
+    assert panel.preset_combo.currentText() == "Mine"
+
+
+def test_duplicate_passes_copy_name_and_no_edit_folder(tmp_path, builder_calls):
+    _app()
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.preset_combo.setCurrentIndex(panel.preset_combo.findText("Default 150x100mm"))
+
+    panel.duplicate_action.trigger()
+
+    assert builder_calls[0]["layout"]["name"] == "Copy of Default 150x100mm"
+    assert builder_calls[0]["edit_folder"] is None
+
+
+def test_edit_passes_the_preset_folder(tmp_path, builder_calls):
+    _app()
+    _builder_preset(tmp_path, "custom", "Custom")
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.preset_combo.setCurrentIndex(panel.preset_combo.findText("Custom"))
+
+    panel.edit_action.trigger()
+
+    assert builder_calls[0]["edit_folder"] == tmp_path / "templates" / "positions" / "custom"
+
+
+def test_broken_layout_json_shows_warning(tmp_path, builder_calls, monkeypatch):
+    _app()
+    _builder_preset(tmp_path, "custom", "Custom")
+    (tmp_path / "templates" / "positions" / "custom" / "layout.json").write_text("{not json")
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.preset_combo.setCurrentIndex(panel.preset_combo.findText("Custom"))
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.edit_action.trigger()
+
+    assert len(warnings) == 1
+    assert builder_calls == []
+
+
+def test_sample_record_uses_first_generated_code(tmp_path):
+    _app()
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    assert panel.sample_record() is None
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+
+    panel.generate()
+
+    assert panel.sample_record()["code"] == "H029"

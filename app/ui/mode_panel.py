@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PIL import Image
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox, QProgressDialog, QWidget
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMenu,
+    QMessageBox,
+    QProgressDialog,
+    QToolButton,
+    QWidget,
+)
 
 from app.core.config import qsettings, shared_folder
+from app.core.layout_builder import is_app_owned, load_layout, new_layout
 from app.core.template_renderer import TemplatePreset, list_presets, render_records
+from app.ui.template_builder import TemplateBuilderDialog
 
 MAX_LABELS_PER_RENDER = 2000
 CONFIRM_LABELS_ABOVE = 300
@@ -33,6 +45,71 @@ class ModePanel(QWidget):
     LARGE_BATCH_TITLE: str
     LARGE_BATCH_VERB: str
     CANCELLED: type[Exception]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.template_button = QToolButton()
+        self.template_button.setText("Template")
+        self.template_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.new_action = QAction("New…", self)
+        self.new_action.triggered.connect(lambda _=False: self.open_builder("new"))
+        self.edit_action = QAction("Edit…", self)
+        self.edit_action.triggered.connect(lambda _=False: self.open_builder("edit"))
+        self.duplicate_action = QAction("Duplicate…", self)
+        self.duplicate_action.triggered.connect(lambda _=False: self.open_builder("duplicate"))
+        menu = QMenu(self.template_button)
+        for action in (self.new_action, self.edit_action, self.duplicate_action):
+            menu.addAction(action)
+        menu.aboutToShow.connect(self._update_template_actions)
+        self.template_button.setMenu(menu)
+
+    def _template_row(self) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.preset_combo, 1)
+        layout.addWidget(self.template_button)
+        self.preset_combo.currentIndexChanged.connect(
+            lambda _index=0: self._update_template_actions()
+        )
+        self._update_template_actions()
+        return row
+
+    def _selected_folder(self) -> Path | None:
+        preset: TemplatePreset | None = self.preset_combo.currentData()
+        return preset.template_path.parent if preset is not None else None
+
+    def _update_template_actions(self) -> None:
+        folder = self._selected_folder()
+        has_builder = folder is not None and (folder / "layout.json").exists()
+        self.edit_action.setEnabled(has_builder and not is_app_owned(self.MODE, folder.name))
+        self.duplicate_action.setEnabled(has_builder)
+
+    def open_builder(self, kind: str) -> None:
+        """Open the template builder for "new", "edit" or "duplicate" of the selected preset."""
+        if kind == "new":
+            layout, edit_folder = new_layout(self.MODE), None
+        else:
+            folder = self._selected_folder()
+            try:
+                layout = load_layout(folder)
+            except ValueError as error:
+                QMessageBox.warning(self, "Can't open template", str(error))
+                return
+            if kind == "duplicate":
+                layout["name"] = f"Copy of {layout['name']}"
+            edit_folder = folder if kind == "edit" else None
+
+        dialog = TemplateBuilderDialog(
+            layout,
+            shared_folder(self._settings),
+            edit_folder=edit_folder,
+            sample=self.sample_record(),
+            parent=self,
+        )
+        if dialog.exec() and dialog.saved_name:
+            qsettings().setValue(f"{self.MODE}/last_template", dialog.saved_name)
+            self.refresh_from_settings(self._settings)
 
     def refresh_from_settings(self, settings: dict) -> None:
         self._settings = settings

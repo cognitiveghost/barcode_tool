@@ -14,7 +14,7 @@ from app.core.template_renderer import (
 from tests.test_template_renderer import POSITION_RECORD
 
 INVERTED_BAR_CSS = (
-    ".position-name { left: 3mm; top: 71mm; width: 144mm; height: 26mm; "
+    ".e4 { left: 3mm; top: 71mm; width: 144mm; height: 26mm; "
     "background: #000; color: #fff; }"
 )
 

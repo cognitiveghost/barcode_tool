@@ -1,0 +1,62 @@
+{
+  "name": "Default 150x100mm",
+  "mode": "positions",
+  "width_mm": 150,
+  "height_mm": 100,
+  "elements": [
+    {
+      "type": "text",
+      "x_mm": 3,
+      "y_mm": 3,
+      "w_mm": 144,
+      "h_mm": 15,
+      "content": "{user_text}",
+      "max_mm": 9,
+      "min_mm": 2,
+      "wrap": false,
+      "bold": true,
+      "uppercase": false,
+      "align": "center",
+      "letter_spacing_mm": 0.3
+    },
+    {
+      "type": "box",
+      "x_mm": 3,
+      "y_mm": 20,
+      "w_mm": 144,
+      "h_mm": 47,
+      "thickness_mm": 0.4
+    },
+    {
+      "type": "barcode",
+      "x_mm": 7,
+      "y_mm": 24,
+      "w_mm": 136,
+      "h_mm": 39,
+      "field": "barcode_data"
+    },
+    {
+      "type": "box",
+      "x_mm": 3,
+      "y_mm": 71,
+      "w_mm": 144,
+      "h_mm": 26,
+      "thickness_mm": 0.5
+    },
+    {
+      "type": "text",
+      "x_mm": 3.5,
+      "y_mm": 71.5,
+      "w_mm": 143,
+      "h_mm": 25,
+      "content": "{visible_text}",
+      "max_mm": 18,
+      "min_mm": 2,
+      "wrap": false,
+      "bold": true,
+      "uppercase": false,
+      "align": "center",
+      "letter_spacing_mm": 1
+    }
+  ]
+}

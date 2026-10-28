@@ -60,6 +60,18 @@ class GenerationCancelled(Exception):
     an expected, deliberate action, not an error to report."""
 
 
+def _record_for_code(code: str, warehouse_prefix: str, user_text: str) -> dict:
+    # The warehouse prefix and the operator's text belong to the barcode
+    # payload and the header respectively - never to the position caption.
+    return {
+        "code": code,
+        "barcode_data": f"{warehouse_prefix}{code}",
+        "visible_text": display_position_code(code),
+        "user_text": user_text,
+        "warehouse_prefix": warehouse_prefix,
+    }
+
+
 def _validate_position_mapping(mapping: dict[str, int | None]) -> str | None:
     has_position_code = mapping.get("position_code") is not None
     has_components = mapping.get("corridor") is not None and mapping.get("number") is not None
@@ -133,7 +145,7 @@ class PositionsModePanel(ModePanel):
         form.addRow("Height to", self.height_to_edit)
         form.addRow("Count", self.count_label)
         form.addRow("Custom text", self.custom_text_edit)
-        form.addRow("Template", self.preset_combo)
+        form.addRow("Template", self._template_row())
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -227,18 +239,7 @@ class PositionsModePanel(ModePanel):
             )
         custom_text = self.custom_text_edit.text()
 
-        # The warehouse prefix and the operator's text belong to the barcode
-        # payload and the header respectively - never to the position caption.
-        records = [
-            {
-                "code": code,
-                "barcode_data": f"{warehouse_prefix}{code}",
-                "visible_text": display_position_code(code),
-                "user_text": custom_text,
-                "warehouse_prefix": warehouse_prefix,
-            }
-            for code in codes
-        ]
+        records = [_record_for_code(code, warehouse_prefix, custom_text) for code in codes]
         images = self.render_labels(preset, records)
         results = list(zip(codes, images))
 
@@ -248,6 +249,13 @@ class PositionsModePanel(ModePanel):
         self._generated_warehouse = warehouse_prefix
         self.print_button.setEnabled(bool(self.generated_labels))
         return results
+
+    def sample_record(self) -> dict | None:
+        if not self.generated_codes:
+            return None
+        return _record_for_code(
+            self.generated_codes[0], self._generated_warehouse, self.custom_text_edit.text()
+        )
 
     def _update_count_preview(self) -> None:
         try:
