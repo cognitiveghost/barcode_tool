@@ -13,18 +13,29 @@ from pathlib import Path
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QDialog,
+    QDoubleSpinBox,
+    QFormLayout,
     QGraphicsItem,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core.layout_builder import default_element, normalise_layout, sample_for
+from app.core.layout_builder import (
+    default_element,
+    mode_fields,
+    normalise_layout,
+    sample_for,
+)
 
 INK = QColor("#000")
 ACCENT = QColor("#1a73e8")
@@ -42,6 +53,18 @@ PALETTE = (
     ("Line", "line"),
 )
 _ALIGN = {"left": Qt.AlignLeft, "center": Qt.AlignHCenter, "right": Qt.AlignRight}
+SIZES = [(150, 100), (100, 150), (100, 100), (100, 50), (68, 38), (58, 40), (50, 30)]
+
+
+def _spin(
+    lo: float, hi: float, value: float, step: float = 0.5, decimals: int = 1
+) -> QDoubleSpinBox:
+    spin = QDoubleSpinBox()
+    spin.setRange(lo, hi)
+    spin.setSingleStep(step)
+    spin.setDecimals(decimals)
+    spin.setValue(value)
+    return spin
 
 
 def _display_rect(el: dict) -> QRectF:
@@ -228,8 +251,42 @@ class TemplateBuilderDialog(QDialog):
         self.view.setRenderHint(QPainter.Antialiasing)
         QShortcut(QKeySequence.Undo, self, self.undo)
 
+        self.name_edit = QLineEdit(self.layout["name"])
+        self.name_edit.editingFinished.connect(self._on_name_edited)
+        self.mode_label = QLabel(f"Mode: {self.layout['mode']}")
+        self.size_combo = QComboBox()
+        self.size_combo.addItems([f"{w} × {h} mm" for w, h in SIZES] + ["Custom"])
+        self.size_combo.currentIndexChanged.connect(self._on_size_picked)
+        self.width_spin = _spin(10, 300, self.layout["width_mm"], step=1)
+        self.height_spin = _spin(10, 300, self.layout["height_mm"], step=1)
+        self.width_spin.editingFinished.connect(self._on_size_edited)
+        self.height_spin.editingFinished.connect(self._on_size_edited)
+        self.undo_button = QPushButton("Undo")
+        self.undo_button.clicked.connect(lambda _=False: self.undo())
         self.top_bar = QHBoxLayout()
+        for widget in (
+            QLabel("Name"),
+            self.name_edit,
+            self.mode_label,
+            self.size_combo,
+            QLabel("W"),
+            self.width_spin,
+            QLabel("H"),
+            self.height_spin,
+            self.undo_button,
+        ):
+            self.top_bar.addWidget(widget)
+        self.top_bar.addStretch(1)
         self.properties_panel = QWidget()
+        self.error_label = QLabel()
+        self.error_label.setWordWrap(True)
+        self.error_label.setStyleSheet("color: #d93025;")
+        self.error_label.setVisible(False)
+        self.prop_widgets: dict[str, QWidget] = {}
+        self._props_body: QWidget | None = None
+        self._props_column = QVBoxLayout(self.properties_panel)
+        self._props_column.addWidget(self.error_label)
+        self._props_column.addStretch(1)
         palette = QVBoxLayout()
         for label, type_ in PALETTE:
             button = QPushButton(label)
@@ -310,6 +367,168 @@ class TemplateBuilderDialog(QDialog):
         self.selected = index
         self._apply_selection()
 
+    # --- top bar ---
+
+    def _attempt(self, fn, *args, **kwargs) -> None:
+        """Run a mutator; a validation error shows inline instead of raising."""
+        try:
+            fn(*args, **kwargs)
+        except ValueError as exc:
+            self.error_label.setText(str(exc))
+            self.error_label.setVisible(True)
+
+    # --- properties panel ---
+
+    def _edit(self, index: int, **props) -> None:
+        if index >= len(self.layout["elements"]):
+            return
+        current = self.layout["elements"][index]
+        if all(current[key] == value for key, value in props.items()):
+            return
+        self._attempt(self.update_element, index, **props)
+
+    def _set_orientation(self, index: int, orientation: str) -> None:
+        el = self.layout["elements"][index]
+        if orientation == el["orientation"]:
+            return
+        length = el["w_mm"] if el["orientation"] == "h" else el["h_mm"]
+        new = copy.deepcopy(self.layout)
+        new["elements"][index].update(
+            orientation=orientation,
+            w_mm=length if orientation == "h" else 0,
+            h_mm=0 if orientation == "h" else length,
+        )
+        self._attempt(self._commit, new)
+
+    def _refresh_properties(self) -> None:
+        if self._props_body is not None:
+            self._props_body.deleteLater()
+        self.error_label.setVisible(False)
+        self.prop_widgets = {}
+        body = QWidget()
+        column = QVBoxLayout(body)
+        if self.selected is None:
+            column.addWidget(QLabel("Click an element, or add one from the left."))
+        else:
+            self._build_element_form(column, self.selected)
+            delete = QPushButton("Delete")
+            delete.clicked.connect(lambda _=False: self.delete_selected())
+            column.addWidget(delete)
+        self._props_body = body
+        self._props_column.insertWidget(0, body)
+
+    def _build_element_form(self, column: QVBoxLayout, index: int) -> None:
+        el = self.layout["elements"][index]
+        kind = el["type"]
+        form = QFormLayout()
+        column.addLayout(form)
+
+        def add(key: str, label: str, widget: QWidget) -> None:
+            self.prop_widgets[key] = widget
+            form.addRow(label, widget)
+
+        def spin_row(key, label, lo, hi, step=0.5, decimals=1) -> None:
+            spin = _spin(lo, hi, el[key], step, decimals)
+            spin.editingFinished.connect(
+                lambda: self._edit(index, **{key: spin.value()})
+            )
+            add(key, label, spin)
+
+        def check_row(key: str, label: str) -> None:
+            box = QCheckBox()
+            box.setChecked(el[key])
+            box.toggled.connect(lambda on: self._edit(index, **{key: on}))
+            add(key, label, box)
+
+        spin_row("x_mm", "X mm", 0, 300)
+        spin_row("y_mm", "Y mm", 0, 300)
+        if kind == "line":
+            axis = "w_mm" if el["orientation"] == "h" else "h_mm"
+            spin_row(axis, "Length mm", 1, 300)
+        else:
+            spin_row("w_mm", "W mm", 1, 300)
+            spin_row("h_mm", "H mm", 1, 300)
+
+        if kind == "text":
+            content = QLineEdit(el["content"])
+            content.editingFinished.connect(
+                lambda: self._edit(index, content=content.text())
+            )
+            add("content", "Content", content)
+            insert = QComboBox()
+            insert.addItems(["Insert field", *mode_fields(self.layout["mode"])])
+
+            def insert_field(i: int) -> None:
+                if i > 0:
+                    field = insert.itemText(i)
+                    self._edit(index, content=f"{content.text()}{{{field}}}")
+
+            add("insert_field", "Insert field", insert)
+            insert.currentIndexChanged.connect(insert_field)
+            spin_row("max_mm", "Max mm", 0.1, 300)
+            spin_row("min_mm", "Min mm", 0.1, 300)
+            check_row("wrap", "Wrap")
+            check_row("bold", "Bold")
+            check_row("uppercase", "Uppercase")
+            align = QComboBox()
+            for text, value in (("Left", "left"), ("Center", "center"), ("Right", "right")):
+                align.addItem(text, value)
+            align.setCurrentIndex(align.findData(el["align"]))
+            align.currentIndexChanged.connect(
+                lambda _i: self._edit(index, align=align.currentData())
+            )
+            add("align", "Align", align)
+            spin_row("letter_spacing_mm", "Letter spacing mm", 0, 10, step=0.1)
+        elif kind in ("barcode", "qr"):
+            field = QComboBox()
+            field.addItems(mode_fields(self.layout["mode"]))
+            field.setCurrentText(el["field"])
+            field.currentIndexChanged.connect(
+                lambda _i: self._edit(index, field=field.currentText())
+            )
+            add("field", "Field", field)
+        elif kind == "box":
+            spin_row("thickness_mm", "Thickness mm", 0.3, 0.5, step=0.05, decimals=2)
+        elif kind == "line":
+            orientation = QComboBox()
+            orientation.addItem("Horizontal", "h")
+            orientation.addItem("Vertical", "v")
+            orientation.setCurrentIndex(orientation.findData(el["orientation"]))
+            orientation.currentIndexChanged.connect(
+                lambda _i: self._set_orientation(index, orientation.currentData())
+            )
+            add("orientation", "Orientation", orientation)
+            spin_row("thickness_mm", "Thickness mm", 0.3, 0.5, step=0.05, decimals=2)
+
+    def _on_name_edited(self) -> None:
+        name = self.name_edit.text()
+        if name != self.layout["name"]:
+            new = copy.deepcopy(self.layout)
+            new["name"] = name
+            self._attempt(self._commit, new)
+
+    def _on_size_picked(self, index: int) -> None:
+        if index < len(SIZES):
+            self._set_size(*SIZES[index])
+
+    def _on_size_edited(self) -> None:
+        self._set_size(self.width_spin.value(), self.height_spin.value())
+
+    def _set_size(self, w: float, h: float) -> None:
+        if (w, h) != (self.layout["width_mm"], self.layout["height_mm"]):
+            self._attempt(self.set_label_size, w, h)
+
+    def _refresh_top_bar(self) -> None:
+        self.name_edit.setText(self.layout["name"])
+        self.width_spin.setValue(self.layout["width_mm"])
+        self.height_spin.setValue(self.layout["height_mm"])
+        size = (self.layout["width_mm"], self.layout["height_mm"])
+        index = SIZES.index(size) if size in SIZES else len(SIZES)
+        self.size_combo.blockSignals(True)
+        self.size_combo.setCurrentIndex(index)
+        self.size_combo.blockSignals(False)
+        self.undo_button.setEnabled(bool(self._undo))
+
     def _apply_selection(self) -> None:
         if self._handle is not None:
             self.scene.removeItem(self._handle)
@@ -318,6 +537,7 @@ class TemplateBuilderDialog(QDialog):
             item.update()
         if self.selected is not None:
             self._handle = _ResizeHandle(self.items[self.selected])
+        self._refresh_properties()
 
     def _rebuild_scene(self) -> None:
         if self.selected is not None and self.selected >= len(self.layout["elements"]):
@@ -349,6 +569,7 @@ class TemplateBuilderDialog(QDialog):
             self.scene.addItem(item)
             self.items.append(item)
         self._apply_selection()
+        self._refresh_top_bar()
         self._fit()
 
     def _fit(self) -> None:

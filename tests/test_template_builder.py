@@ -1,9 +1,9 @@
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
-from app.core.layout_builder import new_layout
-from app.ui.template_builder import TemplateBuilderDialog, _ResizeHandle
+from app.core.layout_builder import mode_fields, new_layout
+from app.ui.template_builder import SIZES, TemplateBuilderDialog, _ResizeHandle
 
 
 def _app():
@@ -113,3 +113,90 @@ def test_scene_is_in_mm(tmp_path):
     dlg.set_label_size(68, 38)
 
     assert dlg.scene.sceneRect().contains(QRectF(0, 0, 68, 38))
+
+
+def test_name_edit_sets_layout_name(tmp_path):
+    dlg = _dialog(tmp_path)
+
+    dlg.name_edit.setText("Shelf tag")
+    dlg.name_edit.editingFinished.emit()
+
+    assert dlg.layout["name"] == "Shelf tag"
+
+
+def test_size_combo_preset_and_custom(tmp_path):
+    dlg = _dialog(tmp_path)
+
+    dlg.size_combo.setCurrentIndex(SIZES.index((68, 38)))
+
+    assert (dlg.layout["width_mm"], dlg.layout["height_mm"]) == (68, 38)
+    assert dlg.width_spin.value() == 68
+    assert dlg.height_spin.value() == 38
+
+    dlg.width_spin.setValue(70)
+    dlg.width_spin.editingFinished.emit()
+
+    assert dlg.size_combo.currentText() == "Custom"
+    assert dlg.layout["width_mm"] == 70
+
+
+def test_properties_show_only_the_selected_type(tmp_path):
+    dlg = _dialog(tmp_path, mode="inventory")
+    dlg.add_element("qr")
+
+    assert "field" in dlg.prop_widgets
+    assert "content" not in dlg.prop_widgets
+    fields = [dlg.prop_widgets["field"].itemText(i) for i in range(dlg.prop_widgets["field"].count())]
+    assert fields == mode_fields("inventory")
+
+
+def test_property_edit_updates_layout_and_is_undoable(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("text")
+
+    dlg.prop_widgets["bold"].setChecked(True)
+    assert dlg.layout["elements"][0]["bold"] is True
+
+    dlg.undo()
+    assert dlg.layout["elements"][0]["bold"] is False
+
+
+def test_insert_field_appends_placeholder(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("text")
+
+    dlg.prop_widgets["insert_field"].setCurrentText("batch")
+
+    assert dlg.layout["elements"][0]["content"].endswith("{batch}")
+
+
+def test_unknown_placeholder_typed_in_content_is_not_committed(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("text")
+    before = dlg.layout["elements"][0]["content"]
+
+    dlg.prop_widgets["content"].setText("{nope}")
+    dlg.prop_widgets["content"].editingFinished.emit()
+
+    assert dlg.layout["elements"][0]["content"] == before
+    assert "nope" in dlg.error_label.text()
+
+
+def test_line_orientation_switch_keeps_length(tmp_path):
+    dlg = _dialog(tmp_path)
+    dlg.add_element("line")
+
+    dlg.prop_widgets["orientation"].setCurrentIndex(1)
+
+    el = dlg.layout["elements"][0]
+    assert el["orientation"] == "v"
+    assert el["h_mm"] == 40
+    assert el["w_mm"] == 0
+
+
+def test_mode_is_shown_read_only(tmp_path):
+    dlg = _dialog(tmp_path, mode="inventory")
+
+    texts = [label.text() for label in dlg.findChildren(QLabel)]
+
+    assert "Mode: inventory" in texts
