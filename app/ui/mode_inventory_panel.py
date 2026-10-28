@@ -36,6 +36,7 @@ from app.core.template_renderer import (
     render_table_pdf,
 )
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.export_sheet_dialog import ask_export_options
 from app.ui.mode_panel import ModePanel, check_label_count
 from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
@@ -356,6 +357,11 @@ class InventoryModePanel(ModePanel):
             )
             return
 
+        options = ask_export_options(self, table_presets)
+        if options is None:
+            return
+        preset, view, columns = options
+
         path, _ = QFileDialog.getSaveFileName(self, "Export table as PDF", filter="PDF files (*.pdf)")
         if not path:
             return
@@ -365,7 +371,7 @@ class InventoryModePanel(ModePanel):
         generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
         records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
         try:
-            pdf_bytes = render_table_pdf(table_presets[0], records)
+            pdf_bytes = render_table_pdf(preset, records, view=view, columns=columns)
             Path(path).write_bytes(pdf_bytes)
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "Export failed", str(error))
