@@ -133,7 +133,7 @@ class InventoryModePanel(ModePanel):
 
         form = QFormLayout()
         form.addRow("Warehouse", self.warehouse_combo)
-        form.addRow("Template", self.preset_combo)
+        form.addRow("Template", self._template_row())
 
         select_buttons = QHBoxLayout()
         select_buttons.addWidget(self.select_all_button)
@@ -219,6 +219,17 @@ class InventoryModePanel(ModePanel):
             if check_item is not None and check_item.checkState() == Qt.CheckState.Checked:
                 checked.append(check_item.data(Qt.ItemDataRole.UserRole))
         return checked
+
+    def sample_record(self) -> dict | None:
+        checked = self.checked_items()
+        if checked:
+            item = checked[0]
+        elif self.items_table.rowCount():
+            item = self.items_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        else:
+            return None
+        generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
+        return _record_for_item(item, self.warehouse_combo.currentData() or "", generated_date)
 
     def _items_to_print(self) -> list[InventoryItem]:
         checked = self.checked_items()

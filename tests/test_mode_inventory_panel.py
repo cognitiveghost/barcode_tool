@@ -9,6 +9,7 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 from app.core import print_service
+from app.core.layout_builder import new_layout, save_layout
 from app.core.print_batch import BatchResult, PrintCancelled
 from app.ui.mode_inventory_panel import (
     TABLE_COLUMNS,
@@ -1068,3 +1069,110 @@ def test_one_label_per_unit_cap_applies_to_the_expanded_total(monkeypatch, tmp_p
 
     assert len(warnings) == 1
     assert "2100 labels" in warnings[0][2]
+
+
+def _builder_preset(shared_folder: Path, slug: str, name: str) -> None:
+    _write_preset(shared_folder, slug, name, 150, 100)
+    layout = {**new_layout("inventory"), "name": name}
+    layout_path = Path(shared_folder) / "templates" / "inventory" / slug / "layout.json"
+    layout_path.write_text(json.dumps(layout))
+
+
+@pytest.fixture
+def builder_calls(monkeypatch):
+    """Stands in for the builder dialog: records its arguments, saves "Mine", accepts."""
+    calls = []
+
+    class FakeBuilder:
+        def __init__(self, layout, shared_folder, *, edit_folder=None, sample=None, parent=None):
+            calls.append({"layout": layout, "edit_folder": edit_folder, "sample": sample})
+            self._layout = layout
+            self._shared_folder = shared_folder
+            self.saved_name = None
+
+        def exec(self):
+            folder = Path(self._shared_folder) / "templates" / "inventory" / "mine"
+            folder.mkdir(parents=True, exist_ok=True)
+            save_layout({**self._layout, "name": "Mine"}, folder)
+            self.saved_name = "Mine"
+            return 1
+
+    monkeypatch.setattr("app.ui.mode_panel.TemplateBuilderDialog", FakeBuilder)
+    return calls
+
+
+def test_template_actions_enabled_for_builder_presets_only(tmp_path):
+    _app()
+    _write_preset(tmp_path, "hand", "Hand", 100, 50)
+    _builder_preset(tmp_path, "custom", "Custom")
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    def actions_for(name):
+        panel.preset_combo.setCurrentIndex(panel.preset_combo.findText(name))
+        return panel.edit_action.isEnabled(), panel.duplicate_action.isEnabled()
+
+    assert panel.new_action.isEnabled()
+    assert actions_for("Default 150x100mm") == (False, True)
+    assert actions_for("Hand") == (False, False)
+    assert actions_for("Custom") == (True, True)
+
+
+def test_new_opens_builder_in_panel_mode_and_selects_saved_preset(tmp_path, builder_calls):
+    _app()
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+
+    panel.new_action.trigger()
+
+    assert builder_calls[0]["layout"]["mode"] == "inventory"
+    assert builder_calls[0]["edit_folder"] is None
+    assert panel.preset_combo.currentText() == "Mine"
+
+
+def test_duplicate_passes_copy_name_and_no_edit_folder(tmp_path, builder_calls):
+    _app()
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.preset_combo.setCurrentIndex(panel.preset_combo.findText("Default 150x100mm"))
+
+    panel.duplicate_action.trigger()
+
+    assert builder_calls[0]["layout"]["name"] == "Copy of Default 150x100mm"
+    assert builder_calls[0]["edit_folder"] is None
+
+
+def test_edit_passes_the_preset_folder(tmp_path, builder_calls):
+    _app()
+    _builder_preset(tmp_path, "custom", "Custom")
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.preset_combo.setCurrentIndex(panel.preset_combo.findText("Custom"))
+
+    panel.edit_action.trigger()
+
+    assert builder_calls[0]["edit_folder"] == tmp_path / "templates" / "inventory" / "custom"
+
+
+def test_broken_layout_json_shows_warning(tmp_path, builder_calls, monkeypatch):
+    _app()
+    _builder_preset(tmp_path, "custom", "Custom")
+    (tmp_path / "templates" / "inventory" / "custom" / "layout.json").write_text("{not json")
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.preset_combo.setCurrentIndex(panel.preset_combo.findText("Custom"))
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    panel.edit_action.trigger()
+
+    assert len(warnings) == 1
+    assert builder_calls == []
+
+
+def test_sample_record_uses_first_checked_item(tmp_path):
+    _app()
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    assert panel.sample_record() is None
+    panel.load_items([
+        {"sku": "SKU1", "name": "Widget", "position_code": "H011A"},
+        {"sku": "SKU2", "name": "Gadget", "position_code": "H012A"},
+    ])
+    panel.items_table.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
+
+    assert panel.sample_record()["sku"] == "SKU2"
