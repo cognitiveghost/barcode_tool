@@ -1,4 +1,4 @@
-# Exact pins: an unpinned zebrafy 2.0 silently inverted raw ZPL output and a
+# Exact pins: zebrafy 2.0 changed its ^GFA bit polarity (inverting raw ZPL) and a
 # new ruff broke lint on an untouched main. Dependabot (.github/dependabot.yml)
 # proposes bumps as PRs so CI checks each one before it lands.
 PySide6==6.11.2

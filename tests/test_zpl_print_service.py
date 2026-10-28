@@ -29,8 +29,10 @@ def test_image_to_zpl_prints_black_content_as_set_bits():
     black = Image.new("L", (16, 8), 0).convert("1")
 
     zpl = image_to_zpl(black)
+    white_zpl = image_to_zpl(Image.new("1", (16, 8), 1))
 
-    assert "GFA,32,16,2,ffffffffffffffffffffffffffffffff" in zpl
+    assert "GFA,16,16,2,00000000000000000000000000000000" in white_zpl
+    assert "GFA,16,16,2,FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF" in zpl
 
 
 def test_image_to_zpl_declares_print_width_and_label_length():
