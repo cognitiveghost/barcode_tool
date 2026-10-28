@@ -1,3 +1,5 @@
+import pytest
+
 from app.core.inventory_import import (
     InventoryItem,
     items_from_csv_rows,
@@ -155,6 +157,28 @@ def test_items_from_csv_rows_combined_column_without_slash_leaves_batch_empty():
 
     assert items[0].expiry == "1-Jan"
     assert items[0].batch == ""
+
+
+@pytest.mark.parametrize(
+    ("value", "expiry", "batch"),
+    [
+        ("2026/08/02", "2026/08/02", ""),
+        ("02.08.2026", "02.08.2026", ""),
+        ("2026-08-02", "2026-08-02", ""),
+        ("08/2027", "08/2027", ""),
+        ("ABC/123", "ABC/123", ""),
+        ("2027-03/4471", "2027-03", "4471"),
+        ("2026/08/02/LOT9", "2026/08/02", "LOT9"),
+        ("1-Jan", "1-Jan", ""),
+    ],
+)
+def test_items_from_csv_rows_combined_exp_bat_column_split_rules(value, expiry, batch):
+    rows = [{"sku": "SKU1", "position_code": "H011A", "expiry": value, "batch": value}]
+
+    items, _skipped = items_from_csv_rows(rows)
+
+    assert items[0].expiry == expiry
+    assert items[0].batch == batch
 
 
 def test_items_from_csv_rows_splits_combined_column_on_last_slash():
