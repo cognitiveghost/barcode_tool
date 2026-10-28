@@ -16,10 +16,10 @@ def image_to_zpl(image: Image.Image, rotate: bool = False) -> str:
     # specific printer's media, not something derivable from the template.
     if rotate:
         image = image.transpose(Image.Transpose.ROTATE_90)
-    # invert=True: PIL's mode "1" packs a set bit as white, but ZPL's ^GFA
-    # graphic field treats a set bit as a printed (black) dot - without this
-    # every raw ZPL print comes out with barcode and background swapped.
-    field = ZebrafyImage(image, invert=True, complete_zpl=False).to_zpl()
+    # zebrafy >= 2.0 already maps black pixels to set (printed) ^GFA bits;
+    # invert=True would swap barcode and background. The image is already
+    # 1-bit from the renderer, so dithering must not touch it.
+    field = ZebrafyImage(image, dither=False, complete_zpl=False).to_zpl()
     # ^PW/^LL tell the printer this job's exact width/length in dots (1
     # image pixel = 1 dot, see send_to_printer). Without them the printer
     # falls back to whatever label size it last had configured/calibrated,
