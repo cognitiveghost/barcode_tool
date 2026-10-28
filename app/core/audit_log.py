@@ -12,7 +12,7 @@ from app.core.config import atomic_write_text, sanitize_filename_component
 
 LOG_COLUMNS = [
     "timestamp", "user", "mode", "warehouse_prefix", "count", "description",
-    "preset", "printer",
+    "preset", "printer", "status",
 ]
 
 _RISKY_LEADING_CHARS = ("=", "+", "-", "@")
@@ -34,6 +34,7 @@ def append_print_log(
     description: str,
     preset: str,
     printer: str,
+    status: str = "printed",
 ) -> None:
     audit_dir = Path(shared_folder) / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
@@ -60,6 +61,7 @@ def append_print_log(
                 _escape_csv_formula(description),
                 _escape_csv_formula(preset),
                 _escape_csv_formula(printer),
+                status,
             ]
         )
 

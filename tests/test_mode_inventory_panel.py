@@ -309,7 +309,7 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
     assert len(audit_files) == 1
     rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 2  # header + one entry
-    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2", "Default 150x100mm", "(system default)"]
+    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2", "Default 150x100mm", "(system default)", "printed"]
 
 
 def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
@@ -368,7 +368,7 @@ def test_print_checked_items_skips_unchecked_rows(tmp_path):
 
     audit_files = list((tmp_path / "audit").glob("*.csv"))
     log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
-    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1", "Default 150x100mm", "(system default)"]
+    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1", "Default 150x100mm", "(system default)", "printed"]
 
 
 def test_print_checked_items_raises_when_nothing_checked(tmp_path):
@@ -405,7 +405,7 @@ def test_print_button_click_without_warehouse_shows_warning(monkeypatch):
     assert len(warnings) == 1
 
 
-def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp_path):
+def test_print_failure_reports_print_failed_and_audits_it_as_failed(monkeypatch, tmp_path):
     # Not a brief scenario: the button click now opens PrintPreviewDialog
     # rather than printing directly, so this OSError-propagation behavior is
     # exercised at the print_checked_items level (same pattern as
@@ -426,13 +426,13 @@ def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp
     log_calls = []
     monkeypatch.setattr(
         "app.core.print_batch.append_print_log",
-        lambda *a, **k: log_calls.append(True),
+        lambda *a, **k: log_calls.append(k),
     )
 
     with pytest.raises(OSError):
         panel.print_checked_items()
 
-    assert log_calls == []
+    assert [call["status"] for call in log_calls] == ["failed"]
 
 
 def test_audit_log_failure_reports_a_warning_after_successful_print(monkeypatch, tmp_path):
