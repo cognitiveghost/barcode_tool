@@ -45,7 +45,7 @@ or a SKU on paper and scan its code when the real item or shelf label can't be s
 
 ## Design
 
-### Grouping layout — ⚠ changes one parent-spec call
+### Grouping layout (changes one parent-spec call; owner picked B)
 
 The parent spec said "a group header row per position/SKU". The prototype render (two sample pages
 sent with the approval round) measured it:
@@ -56,7 +56,7 @@ sent with the approval round) measured it:
 | B. key on every row, group start = heavy rule (recommended) | 20 | 20 | 54 |
 
 Layout A misses the target whenever groups are small, because every 1-row group pays a ~5 mm header.
-**Layout B (Claude's call, pending owner pick):** the group key (position in *By position*, SKU in
+**Layout B (owner, approval round):** the group key (position in *By position*, SKU in
 *By SKU*) is a fixed first column on every row. On a group's first row it is bold, with a small
 second line `3 rows · qty 12` when the group has more than one row (`· qty` only when the Qty
 column is shown). On the following rows it is grey. A group starts with a 0.4 mm black rule, and
@@ -64,9 +64,7 @@ groups alternate white / light grey (`#eee`) — that is the zebra, per group ra
 Because every row carries its own key and codes, a group may break across a page; only single rows
 are kept whole (`tr { break-inside: avoid }`), no `tbody` avoid, so pages fill to the bottom.
 
-If the owner picks A instead, the builder keeps a thin header row
-(`<tr class="group"><td colspan=N>`), `tbody { break-inside: avoid }`, per-row zebra, and the
-target becomes "≥ 18 rows with QRs when positions average ≥ 3 SKUs".
+Layout A is rejected; do not build group header rows.
 
 ### Columns
 
