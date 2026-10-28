@@ -62,7 +62,9 @@ class MainWindow(QMainWindow):
         self._settings_path = default_settings_path()
         configure_logging(self._settings_path.parent)
         self._settings = load_settings(self._settings_path, on_recovery=self._warn_settings_recovered)
-        self._settings = sync_shared_settings(self._settings, self._settings_path)
+        self._settings = sync_shared_settings(
+            self._settings, self._settings_path, on_recovery=self._warn_settings_recovered
+        )
         prune_archive(self._settings)
         configure_logging(shared_folder(self._settings))
 
@@ -123,7 +125,7 @@ class MainWindow(QMainWindow):
             view_menu.addAction(action)
 
     def _warn_settings_recovered(self, message: str) -> None:
-        QMessageBox.warning(self, "Settings reset", message)
+        QMessageBox.warning(self, "Settings problem", message)
 
     def _update_share_banner(self) -> None:
         if self._settings.get("shared_folder"):
@@ -135,7 +137,9 @@ class MainWindow(QMainWindow):
         dialog = SettingsWindow(self._settings, self._settings_path, parent=self)
         if dialog.exec():
             self._settings = sync_shared_settings(
-                load_settings(self._settings_path), self._settings_path
+                load_settings(self._settings_path, on_recovery=self._warn_settings_recovered),
+                self._settings_path,
+                on_recovery=self._warn_settings_recovered,
             )
             configure_logging(shared_folder(self._settings))
             self.positions_panel.refresh_from_settings(self._settings)

@@ -43,7 +43,7 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # this file's own tmp_path-scoped ini so a "remembered template" test
     # here can never leak into test_mode_positions_panel.py's store.
     store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.qsettings", lambda: store)
+    monkeypatch.setattr("app.ui.mode_panel.qsettings", lambda: store)
 
 
 def _write_preset(
@@ -198,7 +198,7 @@ def test_import_csv_button_opens_dialog_and_loads_items(monkeypatch):
 
     panel.import_csv_button.click()
 
-    assert [item.sku for item in panel.items] == ["SKU1"]
+    assert [item.sku for item in panel.checked_items()] == ["SKU1"]
 
 
 def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
@@ -219,7 +219,7 @@ def test_import_csv_button_does_nothing_when_dialog_cancelled(monkeypatch):
 
     panel.import_csv_button.click()
 
-    assert panel.items == []
+    assert panel.checked_items() == []
 
 
 def test_import_csv_button_shows_warning_when_no_valid_rows(monkeypatch):
@@ -265,7 +265,7 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
 
 def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
     _app()
-    monkeypatch.setattr("app.ui.mode_inventory_panel.list_presets", lambda *a, **k: [])
+    monkeypatch.setattr("app.ui.mode_panel.list_presets", lambda *a, **k: [])
 
     panel = InventoryModePanel(SETTINGS)  # constructed standalone, no QMainWindow
 
@@ -274,7 +274,7 @@ def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatc
 
 def test_refresh_shows_status_bar_warning_when_no_presets_found(monkeypatch, tmp_path):
     _app()
-    monkeypatch.setattr("app.ui.mode_inventory_panel.list_presets", lambda *a, **k: [])
+    monkeypatch.setattr("app.ui.mode_panel.list_presets", lambda *a, **k: [])
     window = QMainWindow()
     panel = InventoryModePanel(SETTINGS)
     window.setCentralWidget(panel)
@@ -309,7 +309,7 @@ def test_print_checked_items_writes_pdf_and_log(tmp_path):
     assert len(audit_files) == 1
     rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
     assert len(rows) == 2  # header + one entry
-    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2", "Default 150x100mm", "(system default)"]
+    assert rows[1][2:] == ["inventory", "C001", "2", "SKU1, SKU2", "Default 150x100mm", "(system default)", "printed"]
 
 
 def test_print_checked_items_creates_a_not_yet_existing_shared_folder(tmp_path):
@@ -368,7 +368,7 @@ def test_print_checked_items_skips_unchecked_rows(tmp_path):
 
     audit_files = list((tmp_path / "audit").glob("*.csv"))
     log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
-    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1", "Default 150x100mm", "(system default)"]
+    assert log_lines[1].split(",")[2:] == ["inventory", "C001", "1", "SKU1", "Default 150x100mm", "(system default)", "printed"]
 
 
 def test_print_checked_items_raises_when_nothing_checked(tmp_path):
@@ -405,7 +405,7 @@ def test_print_button_click_without_warehouse_shows_warning(monkeypatch):
     assert len(warnings) == 1
 
 
-def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp_path):
+def test_print_failure_reports_print_failed_and_audits_it_as_failed(monkeypatch, tmp_path):
     # Not a brief scenario: the button click now opens PrintPreviewDialog
     # rather than printing directly, so this OSError-propagation behavior is
     # exercised at the print_checked_items level (same pattern as
@@ -426,13 +426,13 @@ def test_print_failure_reports_print_failed_and_skips_audit_log(monkeypatch, tmp
     log_calls = []
     monkeypatch.setattr(
         "app.core.print_batch.append_print_log",
-        lambda *a, **k: log_calls.append(True),
+        lambda *a, **k: log_calls.append(k),
     )
 
     with pytest.raises(OSError):
         panel.print_checked_items()
 
-    assert log_calls == []
+    assert [call["status"] for call in log_calls] == ["failed"]
 
 
 def test_audit_log_failure_reports_a_warning_after_successful_print(monkeypatch, tmp_path):
@@ -643,7 +643,7 @@ def test_print_checked_items_passes_generated_date_as_yyyy_mm_dd(monkeypatch, tm
         render_calls.append(records)
         return [Image.new("RGB", (10, 10)) for _ in records]
 
-    monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
+    monkeypatch.setattr("app.ui.mode_panel.render_records", _fake_render)
     monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
@@ -675,7 +675,7 @@ def test_print_checked_items_passes_structured_fields_to_renderer(monkeypatch, t
         render_calls.append(records)
         return [Image.new("RGB", (10, 10)) for _ in records]
 
-    monkeypatch.setattr("app.ui.mode_inventory_panel.render_records", _fake_render)
+    monkeypatch.setattr("app.ui.mode_panel.render_records", _fake_render)
     monkeypatch.setattr("app.core.print_batch.send_to_printer", lambda *a, **k: None)
 
     panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
@@ -850,10 +850,10 @@ def test_export_table_click_without_a_pdf_suffix_appends_one(monkeypatch, tmp_pa
 def test_print_checked_items_large_batch_renders_in_pinned_chunks(monkeypatch):
     _app()
     panel = InventoryModePanel(SETTINGS)
-    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(250)])
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(310)])
     render_calls = []
     monkeypatch.setattr(
-        "app.ui.mode_inventory_panel.render_records",
+        "app.ui.mode_panel.render_records",
         lambda preset, records: render_calls.append(len(records)) or [f"img{i}" for i in range(len(records))],
     )
     monkeypatch.setattr(
@@ -862,24 +862,56 @@ def test_print_checked_items_large_batch_renders_in_pinned_chunks(monkeypatch):
     )
     monkeypatch.setattr(
         "app.ui.mode_inventory_panel.print_batch",
-        lambda *a, **k: BatchResult(count=250, archive_path=None),
+        lambda *a, **k: BatchResult(count=310, archive_path=None),
     )
 
     panel.print_checked_items()
 
-    assert render_calls == [50, 50, 50, 50, 50]
+    assert render_calls == [50, 50, 50, 50, 50, 50, 10]
 
 
 def test_declining_the_large_batch_confirmation_raises_print_cancelled(monkeypatch):
     _app()
     panel = InventoryModePanel(SETTINGS)
-    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(250)])
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(310)])
     monkeypatch.setattr(
         "app.ui.mode_inventory_panel.QMessageBox.question",
         staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
     )
 
     with pytest.raises(PrintCancelled):
+        panel.print_checked_items()
+
+
+def test_print_refuses_more_than_2000_checked_items_before_the_preview_opens(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(2001)])
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.PrintPreviewDialog",
+        lambda **k: pytest.fail("the preview must not open for an over-cap batch"),
+    )
+
+    panel._on_print_clicked()
+
+    assert len(warnings) == 1
+    assert "2001 labels" in warnings[0][2]
+
+
+def test_print_checked_items_refuses_more_than_2000_before_rendering(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.load_items([{"sku": f"SKU{i}", "position_code": "H011A"} for i in range(2001)])
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.render_records",
+        lambda *a, **k: pytest.fail("nothing may render for an over-cap batch"),
+    )
+
+    with pytest.raises(ValueError, match="2001 labels"):
         panel.print_checked_items()
 
 

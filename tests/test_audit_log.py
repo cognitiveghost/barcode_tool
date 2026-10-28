@@ -10,8 +10,23 @@ def test_append_creates_one_file_per_call(tmp_path):
     audit_files = list((tmp_path / "audit").glob("*.csv"))
     assert len(audit_files) == 1
     rows = list(csv.reader(audit_files[0].read_text(encoding="utf-8").splitlines()))
-    assert rows[0] == ["timestamp", "user", "mode", "warehouse_prefix", "count", "description", "preset", "printer"]
-    assert rows[1][2:] == ["positions", "C001", "2", "H029-H030", "Standard", "HP-1"]
+    assert rows[0] == ["timestamp", "user", "mode", "warehouse_prefix", "count", "description", "preset", "printer",
+                       "status"]
+    assert rows[1][2:] == ["positions", "C001", "2", "H029-H030", "Standard", "HP-1", "printed"]
+
+
+def test_append_writes_status_column(tmp_path):
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=1, description="H029",
+                      preset="Standard", printer="HP-1")
+    append_print_log(tmp_path, mode="positions", warehouse_prefix="C001", count=0, description="H030",
+                      preset="Standard", printer="HP-1", status="failed")
+
+    rows = []
+    for audit_file in sorted((tmp_path / "audit").glob("*.csv")):
+        with audit_file.open(encoding="utf-8", newline="") as f:
+            rows.extend(csv.DictReader(f))
+    statuses = {row["description"]: row["status"] for row in rows}
+    assert statuses == {"H029": "printed", "H030": "failed"}
 
 
 def test_append_twice_creates_two_separate_files(tmp_path):

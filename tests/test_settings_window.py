@@ -1,7 +1,7 @@
 from PySide6.QtPrintSupport import QPrinterInfo
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
-from app.core.config import DEFAULT_SETTINGS, load_settings
+from app.core.config import DEFAULT_SETTINGS, load_settings, save_shared_settings
 from app.ui.settings_window import SettingsWindow
 
 
@@ -34,6 +34,49 @@ def test_save_writes_settings_to_disk(tmp_path):
 
     saved = load_settings(settings_path)
     assert saved["shared_folder"] == shared_folder
+
+
+def test_unchanged_warehouses_are_not_written_to_the_shared_file(tmp_path):
+    _app()
+    shared_dir = tmp_path / "shared"
+    settings = {
+        **DEFAULT_SETTINGS,
+        "shared_folder": str(shared_dir),
+        "warehouses": [{"name": "A", "prefix": "C001"}],
+    }
+    save_shared_settings(settings, tmp_path / "local" / "settings.json", keys=("warehouses",))
+    window = SettingsWindow(settings, settings_path=tmp_path / "local" / "settings.json")
+    # Another PC changes the shared warehouses after this dialog opened.
+    save_shared_settings(
+        {"shared_folder": str(shared_dir), "warehouses": [{"name": "B", "prefix": "C002"}]},
+        tmp_path / "local" / "settings.json",
+        keys=("warehouses",),
+    )
+
+    window._save_and_close()
+
+    assert load_settings(shared_dir / "settings.json")["warehouses"] == [{"name": "B", "prefix": "C002"}]
+
+
+def test_edited_warehouses_are_written_to_the_shared_file(tmp_path):
+    _app()
+    shared_dir = tmp_path / "shared"
+    settings_path = tmp_path / "local" / "settings.json"
+    settings = {
+        **DEFAULT_SETTINGS,
+        "shared_folder": str(shared_dir),
+        "warehouses": [{"name": "A", "prefix": "C001"}],
+    }
+    save_shared_settings(settings, settings_path, keys=("warehouses",))
+    window = SettingsWindow(settings, settings_path=settings_path)
+    window._add_warehouse_row("Second", "C002")
+
+    window._save_and_close()
+
+    assert load_settings(shared_dir / "settings.json")["warehouses"] == [
+        {"name": "A", "prefix": "C001"},
+        {"name": "Second", "prefix": "C002"},
+    ]
 
 
 def test_save_with_no_settings_path_warns_and_does_not_close(monkeypatch):

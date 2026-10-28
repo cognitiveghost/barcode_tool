@@ -261,11 +261,7 @@ class CsvImportDialog(QDialog):
             try:
                 save_settings(default_settings_path(), self._settings)
                 save_shared_settings(
-                    {
-                        "shared_folder": self._settings.get("shared_folder", ""),
-                        "csv_mappings": self._settings["csv_mappings"],
-                    },
-                    default_settings_path(),
+                    self._settings, default_settings_path(), keys=("csv_mappings",)
                 )
             except OSError:
                 # A remembered mapping is a convenience; failing to persist

@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.core.position_generator import (
     SkippedRow,
     format_position_code,
     parse_position_code,
+)
+
+_DATE_FORMATS = (
+    "%Y/%m/%d",
+    "%Y-%m-%d",
+    "%d.%m.%Y",
+    "%d/%m/%Y",
+    "%d.%m.%y",
+    "%Y/%m",
+    "%Y-%m",
+    "%m/%Y",
+    "%m.%Y",
 )
 
 INVENTORY_CSV_FIELDS = [
@@ -33,6 +46,32 @@ class InventoryItem:
     quantity: int = 1
 
 
+def _is_date(value: str) -> bool:
+    for fmt in _DATE_FORMATS:
+        try:
+            datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+        return True
+    return False
+
+
+def _split_expiry_batch(value: str) -> tuple[str, str]:
+    """Split a combined Exp/Bat value into (expiry, batch).
+
+    A bare date stays whole. Otherwise split on the last "/" only when the
+    left side is a date and the right side is not ("2027-03/4471"). Anything
+    else is all expiry with no batch ("1-Jan", "ABC/123").
+    """
+    if _is_date(value):
+        return value, ""
+    if "/" in value:
+        left, right = value.rsplit("/", 1)
+        if _is_date(left) and not _is_date(right):
+            return left.strip(), right.strip()
+    return value, ""
+
+
 def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem], list[SkippedRow]]:
     items: list[InventoryItem] = []
     skipped_rows: list[SkippedRow] = []
@@ -57,20 +96,9 @@ def items_from_csv_rows(rows: list[dict[str, str]]) -> tuple[list[InventoryItem]
             # Some WMS exports carry expiry and batch combined in a single
             # "Exp/Bat" column (e.g. "2027-03/4471"). The operator maps both
             # the expiry and batch fields to that same source column in the
-            # CSV import dialog - an explicit, deliberate signal, unlike the
-            # old "split on / whenever one side is empty" heuristic that got
-            # deleted for shredding real dates like "2026/08/02". Split on
-            # the last "/" so a date that itself contains slashes still
-            # comes out intact on the left. Some rows in that combined column
-            # have no batch at all (just a bare date, e.g. "1-Jan") - without
-            # a "/" there is nothing to split, so batch must be cleared
-            # rather than left duplicating the expiry value.
+            # CSV import dialog - an explicit, deliberate signal.
             if expiry and expiry == batch:
-                if "/" in expiry:
-                    expiry, batch = expiry.rsplit("/", 1)
-                    expiry, batch = expiry.strip(), batch.strip()
-                else:
-                    batch = ""
+                expiry, batch = _split_expiry_batch(expiry)
 
             quantity_raw = (row.get("quantity") or "").strip()
             if quantity_raw:

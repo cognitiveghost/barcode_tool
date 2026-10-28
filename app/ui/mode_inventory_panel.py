@@ -15,15 +15,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QProgressDialog,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget,
 )
 
-from app.core.config import qsettings, shared_folder
+from app.core.config import shared_folder
 from app.core.inventory_import import (
     INVENTORY_CSV_FIELDS,
     InventoryItem,
@@ -38,6 +36,7 @@ from app.core.template_renderer import (
     render_table_pdf,
 )
 from app.ui.csv_import_dialog import CsvImportDialog
+from app.ui.mode_panel import ModePanel, check_label_count
 from app.ui.print_preview_dialog import PrintPreviewDialog
 from app.ui.skipped_rows_dialog import SkippedRowsDialog
 
@@ -49,10 +48,6 @@ TABLE_COLUMNS = ["", "SKU", "Qty", "Name", "Client", "Position", "Batch", "Expir
 TABLE_PRESET_MODE = "inventory-table"
 
 _DESCRIPTION_SKU_LIMIT = 5
-
-LARGE_BATCH_THRESHOLD = 200
-_RENDER_CHUNK_SIZE = 50
-_ESTIMATED_SECONDS_PER_LABEL = 0.02
 
 
 def _describe_skus(skus: list[str], limit: int = _DESCRIPTION_SKU_LIMIT) -> str:
@@ -84,10 +79,14 @@ def _record_for_item(item: InventoryItem, warehouse_prefix: str, generated_date:
     }
 
 
-class InventoryModePanel(QWidget):
+class InventoryModePanel(ModePanel):
+    MODE = "inventory"
+    LARGE_BATCH_TITLE = "Print a large batch?"
+    LARGE_BATCH_VERB = "Render and print"
+    CANCELLED = PrintCancelled
+
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
-        self.items: list[InventoryItem] = []
         self._last_skipped_rows: list = []
         self._last_import_rows: list[dict[str, str]] = []
 
@@ -148,50 +147,11 @@ class InventoryModePanel(QWidget):
         layout.addWidget(self.print_button)
         layout.addWidget(self.export_table_button)
 
-    def refresh_from_settings(self, settings: dict) -> None:
-        self._settings = settings
-
-        self.warehouse_combo.clear()
-        for warehouse in settings.get("warehouses", []):
-            self.warehouse_combo.addItem(warehouse["name"], warehouse["prefix"])
-
-        folder = shared_folder(settings)
-        self.preset_combo.clear()
-        for preset in list_presets(folder, "inventory"):
-            self.preset_combo.addItem(preset.name, preset)
-        remembered_name = qsettings().value("inventory/last_template")
-        if remembered_name is not None:
-            index = self.preset_combo.findText(remembered_name)
-            if index >= 0:
-                self.preset_combo.setCurrentIndex(index)
-
-        if self.preset_combo.count() == 0:
-            self._warn_no_presets(folder)
-
-    def _warn_no_presets(self, shared_folder) -> None:
-        window = self.window()
-        if not hasattr(window, "statusBar"):
-            return  # not embedded in a QMainWindow (e.g. a standalone test)
-        window.statusBar().showMessage(
-            f"No label templates found in '{shared_folder}' - check the "
-            "shared folder's templates directory or your permissions."
-        )
-
-    def _show_status(self, message: str) -> None:
-        window = self.window()
-        if not hasattr(window, "statusBar"):
-            return  # not embedded in a QMainWindow (e.g. a standalone test)
-        window.statusBar().showMessage(message, 5000)
-
-    def _on_preset_selected(self, index: int) -> None:
-        qsettings().setValue("inventory/last_template", self.preset_combo.itemText(index))
-
     def load_items(self, rows: list[dict[str, str]]) -> list[InventoryItem]:
         items, skipped_rows = items_from_csv_rows(rows)
         if not items:
             raise ValueError("No valid inventory rows found in the imported file")
 
-        self.items = items
         self._populate_table(items)
 
         self._last_skipped_rows = skipped_rows
@@ -219,7 +179,7 @@ class InventoryModePanel(QWidget):
             check_item.setFlags(check_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             check_item.setCheckState(Qt.CheckState.Checked)
             # The row carries its own item: the table can be re-sorted, so the
-            # row index is not a stable key into self.items.
+            # row index is not a stable key.
             check_item.setData(Qt.ItemDataRole.UserRole, item)
             self.items_table.setItem(row_index, 0, check_item)
 
@@ -300,6 +260,11 @@ class InventoryModePanel(QWidget):
                 self, "Print failed", "Nothing to print - import a CSV and check at least one row"
             )
             return
+        try:
+            check_label_count(len(checked))
+        except ValueError as error:
+            QMessageBox.warning(self, "Print failed", str(error))
+            return
         warehouse_prefix = self.warehouse_combo.currentData()
         if not warehouse_prefix:
             QMessageBox.warning(
@@ -356,10 +321,7 @@ class InventoryModePanel(QWidget):
 
         generated_date = datetime.now(UTC).astimezone().strftime("%Y/%m/%d")
         records = [_record_for_item(item, warehouse_prefix, generated_date) for item in checked]
-        if len(records) > LARGE_BATCH_THRESHOLD:
-            images = self._render_with_progress(preset, records)
-        else:
-            images = render_records(preset, records)
+        images = self.render_labels(preset, records)
 
         description = _describe_skus([item.sku for item in checked])
         return print_batch(
@@ -372,36 +334,6 @@ class InventoryModePanel(QWidget):
             copies=copies,
             output_pdf_path=output_pdf_path,
         )
-
-    def _render_with_progress(
-        self, preset: TemplatePreset, records: list[dict]
-    ) -> list[Image.Image]:
-        estimated_minutes = max(1, round(len(records) * _ESTIMATED_SECONDS_PER_LABEL / 60))
-        answer = QMessageBox.question(
-            self,
-            "Print a large batch?",
-            f"Render and print {len(records)} labels? This will take about "
-            f"{estimated_minutes} minute{'s' if estimated_minutes != 1 else ''}.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            raise PrintCancelled()
-
-        progress = QProgressDialog("Rendering labels...", "Cancel", 0, len(records), self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(0)
-
-        images: list[Image.Image] = []
-        try:
-            for start in range(0, len(records), _RENDER_CHUNK_SIZE):
-                if progress.wasCanceled():
-                    raise PrintCancelled()
-                chunk = records[start : start + _RENDER_CHUNK_SIZE]
-                images.extend(render_records(preset, chunk))
-                progress.setValue(min(start + _RENDER_CHUNK_SIZE, len(records)))
-        finally:
-            progress.close()
-        return images
 
     def _on_export_table_clicked(self) -> None:
         checked = self.checked_items()

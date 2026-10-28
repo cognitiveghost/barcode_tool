@@ -37,8 +37,7 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # that owns its own qsettings() import to one throwaway ini per test.
     store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
     monkeypatch.setattr("app.ui.main_window.qsettings", lambda: store)
-    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
-    monkeypatch.setattr("app.ui.mode_inventory_panel.qsettings", lambda: store)
+    monkeypatch.setattr("app.ui.mode_panel.qsettings", lambda: store)
 
 
 def test_main_window_title():

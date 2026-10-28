@@ -2,8 +2,8 @@ import re
 
 import pytest
 from PIL import Image
-from PySide6.QtGui import QPageLayout
-from PySide6.QtPrintSupport import QPrinter
+from PySide6.QtGui import QPageLayout, QPainter
+from PySide6.QtPrintSupport import QPrinter, QPrinterInfo
 from PySide6.QtWidgets import QApplication
 
 from app.core.print_service import (
@@ -34,6 +34,30 @@ def test_print_labels_writes_pdf_with_expected_page_count(tmp_path):
 
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+def test_print_labels_raises_for_a_printer_that_is_not_installed(monkeypatch):
+    _app()
+    monkeypatch.setattr(
+        "app.core.print_service.QPrinterInfo.printerInfo",
+        staticmethod(lambda name: QPrinterInfo()),
+    )
+
+    with pytest.raises(OSError, match="not installed"):
+        print_labels([Image.new("RGB", (100, 100), "white")], 150, 100, printer_name="Gone")
+
+
+def test_print_labels_raises_when_painting_cannot_start(monkeypatch, tmp_path):
+    _app()
+    monkeypatch.setattr(QPainter, "begin", lambda self, device: False)
+
+    with pytest.raises(OSError):
+        print_labels(
+            [Image.new("RGB", (100, 100), "white")],
+            150,
+            100,
+            output_pdf_path=tmp_path / "x.pdf",
+        )
 
 
 def test_page_orientation_landscape_for_wide_size():

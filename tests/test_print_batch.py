@@ -1,3 +1,4 @@
+import csv
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -85,6 +86,7 @@ def test_successful_print_archives_and_logs_with_no_warnings(monkeypatch, tmp_pa
     # One physical-print call (output_pdf_path=None) + one archive call.
     assert calls == [None, result.archive_path]
     assert result.archive_path.parent.name == datetime.now(UTC).strftime("%Y-%m")
+    assert _audit_rows(tmp_path)[0]["status"] == "printed"
 
 
 def test_archive_path_is_named_from_mode_prefix_and_description(monkeypatch, tmp_path):
@@ -206,6 +208,63 @@ def test_print_failure_is_logged_and_still_raises(monkeypatch, tmp_path, log_rec
                      warehouse_prefix="C001", description="H029")
 
     assert any("Print failed" in r.getMessage() for r in log_records)
+
+
+def _audit_rows(shared: Path) -> list[dict]:
+    files = list((shared / "audit").glob("*.csv"))
+    assert len(files) == 1
+    with files[0].open(encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def test_failure_after_one_of_three_copies_logs_a_failed_row(monkeypatch, tmp_path):
+    calls = []
+
+    def _send(images, **kwargs):
+        calls.append(kwargs.get("output_pdf_path"))
+        if len(calls) == 2:
+            raise OSError("jam")
+
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _send)
+
+    with pytest.raises(OSError, match="jam"):
+        print_batch(["a", "b"], _preset(), _settings(tmp_path), mode="positions",
+                     warehouse_prefix="C001", description="H029", copies=3)
+
+    rows = _audit_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["count"] == "2"
+    assert rows[0]["status"] == "failed"
+
+
+def test_single_copy_failure_logs_count_zero(monkeypatch, tmp_path):
+    def _boom(images, **kwargs):
+        raise OSError("printer offline")
+
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _boom)
+
+    with pytest.raises(OSError, match="printer offline"):
+        print_batch(["a", "b"], _preset(), _settings(tmp_path), mode="positions",
+                     warehouse_prefix="C001", description="H029")
+
+    rows = _audit_rows(tmp_path)
+    assert rows[0]["count"] == "0"
+    assert rows[0]["status"] == "failed"
+
+
+def test_failed_audit_write_does_not_mask_the_print_error(monkeypatch, tmp_path):
+    def _boom(images, **kwargs):
+        raise OSError("jam")
+
+    def _disk_full(*args, **kwargs):
+        raise OSError("disk")
+
+    monkeypatch.setattr("app.core.print_batch.send_to_printer", _boom)
+    monkeypatch.setattr("app.core.print_batch.append_print_log", _disk_full)
+
+    with pytest.raises(OSError, match="jam"):
+        print_batch(["a"], _preset(), _settings(tmp_path), mode="positions",
+                     warehouse_prefix="C001", description="H029")
 
 
 def test_print_batch_passes_preset_name_and_printer_to_the_audit_log(monkeypatch, tmp_path):

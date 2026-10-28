@@ -64,31 +64,39 @@ def print_batch(
         mode, preset.name, printer, warehouse_prefix, len(images), copies, description,
     )
 
+    folder = resolve_shared_folder(settings)
+    # An explicit output path is a one-shot export (e.g. "Save as PDF"):
+    # copies doesn't apply to a file, and there is exactly one render.
+    targets = [output_pdf_path] if output_pdf_path is not None else [None] * copies
+    sent = 0
     try:
-        if output_pdf_path is not None:
-            # An explicit output path is a one-shot export (e.g. "Save as PDF"):
-            # copies doesn't apply to a file, and there is exactly one render.
+        for target in targets:
             send_to_printer(
                 images,
                 width_mm=preset.width_mm,
                 height_mm=preset.height_mm,
                 settings=settings,
-                output_pdf_path=output_pdf_path,
+                output_pdf_path=target,
             )
-        else:
-            for _ in range(copies):
-                send_to_printer(
-                    images,
-                    width_mm=preset.width_mm,
-                    height_mm=preset.height_mm,
-                    settings=settings,
-                    output_pdf_path=None,
-                )
+            sent += len(images)
     except Exception:
         logger.exception("Print failed: mode=%s preset=%s printer=%s", mode, preset.name, printer)
+        try:
+            append_print_log(
+                folder,
+                mode=mode,
+                warehouse_prefix=warehouse_prefix,
+                count=sent,
+                description=description,
+                preset=preset.name,
+                printer=printer,
+                status="failed",
+            )
+        except OSError as audit_error:
+            # Never mask the print error with a failed audit write.
+            logger.error("Could not record the failed print in the audit log: %s", audit_error)
         raise
 
-    folder = resolve_shared_folder(settings)
     total_count = len(images) * copies
     warnings: list[str] = []
     archive_path: Path | None = _archive_path(folder, mode, warehouse_prefix, description)

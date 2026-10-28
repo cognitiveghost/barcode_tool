@@ -34,7 +34,7 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # the same test process would restore from it, the same class of
     # cross-test leak Task 18 found and fixed for csv_import_dialog.py.
     store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
-    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
+    monkeypatch.setattr("app.ui.mode_panel.qsettings", lambda: store)
 
 
 def _write_preset(
@@ -135,12 +135,12 @@ def test_print_current_labels_writes_pdf_and_log(tmp_path):
     assert len(audit_files) == 1
     log_lines = audit_files[0].read_text(encoding="utf-8").strip().splitlines()
     assert len(log_lines) == 2  # header + one entry
-    assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030", "Default 150x100mm", "(system default)"]
+    assert log_lines[1].split(",")[2:] == ["positions", "C001", "2", "H029..H030", "Default 150x100mm", "(system default)", "printed"]
 
 
 def test_generate_without_preset_raises_value_error(monkeypatch, tmp_path):
     _app()
-    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+    monkeypatch.setattr("app.ui.mode_panel.list_presets", lambda *a, **k: [])
     settings = {**SETTINGS, "shared_folder": str(tmp_path)}
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
@@ -254,6 +254,32 @@ def test_print_uses_preset_from_generate_time_not_live_combo(monkeypatch, tmp_pa
 
     assert calls[0]["width_mm"] == 68
     assert calls[0]["height_mm"] == 38
+
+
+def test_print_uses_the_warehouse_from_generation(monkeypatch):
+    _app()
+    settings = {
+        "warehouses": [
+            {"name": "Main", "prefix": "C001"},
+            {"name": "Second", "prefix": "C002"},
+        ],
+    }
+    panel = PositionsModePanel(settings)
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("029")
+    panel.number_to_edit.setText("030")
+    panel.generate()
+
+    panel.warehouse_combo.setCurrentIndex(1)  # user switches to C002 after Generate
+
+    calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_positions_panel.print_batch",
+        lambda *a, **k: calls.append(k),
+    )
+    panel.print_current_labels()
+
+    assert calls[0]["warehouse_prefix"] == "C001"
 
 
 def test_generate_from_rows_builds_labels_from_components():
@@ -452,7 +478,7 @@ def test_refresh_from_settings_rebuilds_combos(tmp_path):
 
 def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatch):
     _app()
-    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+    monkeypatch.setattr("app.ui.mode_panel.list_presets", lambda *a, **k: [])
 
     panel = PositionsModePanel(SETTINGS)  # constructed standalone, no QMainWindow
 
@@ -461,7 +487,7 @@ def test_refresh_with_no_presets_does_not_crash_without_a_main_window(monkeypatc
 
 def test_refresh_shows_status_bar_warning_when_no_presets_found(monkeypatch, tmp_path):
     _app()
-    monkeypatch.setattr("app.ui.mode_positions_panel.list_presets", lambda *a, **k: [])
+    monkeypatch.setattr("app.ui.mode_panel.list_presets", lambda *a, **k: [])
     window = QMainWindow()
     panel = PositionsModePanel(SETTINGS)
     window.setCentralWidget(panel)
@@ -657,7 +683,7 @@ def test_large_batch_prompts_and_renders_in_chunks(monkeypatch, tmp_path):
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("000")
-    panel.number_to_edit.setText("249")  # 250 codes, > LARGE_BATCH_THRESHOLD (200)
+    panel.number_to_edit.setText("309")  # 310 codes, > CONFIRM_LABELS_ABOVE (300)
 
     render_calls = []
 
@@ -665,7 +691,7 @@ def test_large_batch_prompts_and_renders_in_chunks(monkeypatch, tmp_path):
         render_calls.append(len(records))
         return [Image.new("RGB", (10, 10)) for _ in records]
 
-    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", _fake_render)
+    monkeypatch.setattr("app.ui.mode_panel.render_records", _fake_render)
     questions = []
     monkeypatch.setattr(
         QMessageBox, "question",
@@ -675,8 +701,8 @@ def test_large_batch_prompts_and_renders_in_chunks(monkeypatch, tmp_path):
     results = panel.generate()
 
     assert len(questions) == 1
-    assert len(results) == 250
-    assert render_calls == [50, 50, 50, 50, 50]
+    assert len(results) == 310
+    assert render_calls == [50, 50, 50, 50, 50, 50, 10]
 
 
 def test_large_batch_chunk_sizes_for_a_non_round_batch(monkeypatch, tmp_path):
@@ -686,7 +712,7 @@ def test_large_batch_chunk_sizes_for_a_non_round_batch(monkeypatch, tmp_path):
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("000")
-    panel.number_to_edit.setText("216")  # 217 codes: 4 full chunks of 50 + a 17-record remainder
+    panel.number_to_edit.setText("316")  # 317 codes: 6 full chunks of 50 + a 17-record remainder
 
     render_calls = []
 
@@ -694,7 +720,7 @@ def test_large_batch_chunk_sizes_for_a_non_round_batch(monkeypatch, tmp_path):
         render_calls.append(len(records))
         return [Image.new("RGB", (10, 10)) for _ in records]
 
-    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", _fake_render)
+    monkeypatch.setattr("app.ui.mode_panel.render_records", _fake_render)
     monkeypatch.setattr(
         QMessageBox, "question",
         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
@@ -702,8 +728,8 @@ def test_large_batch_chunk_sizes_for_a_non_round_batch(monkeypatch, tmp_path):
 
     results = panel.generate()
 
-    assert len(results) == 217
-    assert render_calls == [50, 50, 50, 50, 17]
+    assert len(results) == 317
+    assert render_calls == [50, 50, 50, 50, 50, 50, 17]
 
 
 def test_confirmation_message_shows_the_count_and_a_time_estimate(monkeypatch, tmp_path):
@@ -713,10 +739,10 @@ def test_confirmation_message_shows_the_count_and_a_time_estimate(monkeypatch, t
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("000")
-    panel.number_to_edit.setText("249")
+    panel.number_to_edit.setText("309")
 
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.render_records",
+        "app.ui.mode_panel.render_records",
         lambda preset, records, **k: [Image.new("RGB", (10, 10)) for _ in records],
     )
     questions = []
@@ -727,7 +753,7 @@ def test_confirmation_message_shows_the_count_and_a_time_estimate(monkeypatch, t
 
     panel.generate()
 
-    assert "250 labels" in questions[0][2]
+    assert "310 labels" in questions[0][2]
     assert "minute" in questions[0][2]
 
 
@@ -738,11 +764,11 @@ def test_declining_the_large_batch_confirmation_raises_generation_cancelled(monk
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("000")
-    panel.number_to_edit.setText("249")
+    panel.number_to_edit.setText("309")
 
     render_calls = []
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.render_records",
+        "app.ui.mode_panel.render_records",
         lambda preset, records, **k: (render_calls.append(records), [])[1],
     )
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
@@ -760,9 +786,9 @@ def test_on_generate_clicked_is_silent_when_the_large_batch_is_declined(monkeypa
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("000")
-    panel.number_to_edit.setText("249")
+    panel.number_to_edit.setText("309")
 
-    monkeypatch.setattr("app.ui.mode_positions_panel.render_records", lambda preset, records, **k: [])
+    monkeypatch.setattr("app.ui.mode_panel.render_records", lambda preset, records, **k: [])
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
@@ -779,11 +805,11 @@ def test_progress_dialog_cancel_stops_rendering_after_the_current_chunk(monkeypa
     panel = PositionsModePanel(settings)
     panel.corridor_edit.setText("H")
     panel.number_from_edit.setText("000")
-    panel.number_to_edit.setText("249")
+    panel.number_to_edit.setText("309")
 
     render_calls = []
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.render_records",
+        "app.ui.mode_panel.render_records",
         lambda preset, records, **k: (
             render_calls.append(records), [Image.new("RGB", (10, 10)) for _ in records]
         )[1],
@@ -809,10 +835,10 @@ def test_generate_from_rows_also_uses_the_large_batch_path(monkeypatch, tmp_path
     _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
     settings = {**SETTINGS, "shared_folder": str(tmp_path)}
     panel = PositionsModePanel(settings)
-    rows = [{"corridor": "H", "number": f"{i:03d}", "height": ""} for i in range(250)]
+    rows = [{"corridor": "H", "number": f"{i:03d}", "height": ""} for i in range(310)]
 
     monkeypatch.setattr(
-        "app.ui.mode_positions_panel.render_records",
+        "app.ui.mode_panel.render_records",
         lambda preset, records, **k: [Image.new("RGB", (10, 10)) for _ in records],
     )
     questions = []
@@ -824,7 +850,81 @@ def test_generate_from_rows_also_uses_the_large_batch_path(monkeypatch, tmp_path
     results = panel.generate_from_rows(rows)
 
     assert len(questions) == 1
-    assert len(results) == 250
+    assert len(results) == 310
+
+
+def test_check_label_count_allows_the_cap_and_refuses_one_more():
+    from app.ui.mode_panel import check_label_count
+
+    check_label_count(2000)
+    with pytest.raises(ValueError, match="2001 labels"):
+        check_label_count(2001)
+
+
+def test_more_than_2000_labels_is_refused_before_any_rendering(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_panel.render_records",
+        lambda preset, records, **k: render_calls.append(records) or [],
+    )
+    questions = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: questions.append(a)))
+
+    with pytest.raises(ValueError, match="2001 labels"):
+        panel._render_labels([f"H{i}" for i in range(2001)])
+
+    assert render_calls == []
+    assert questions == []
+
+
+def test_300_labels_render_in_one_call_without_asking(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("299")  # exactly 300 codes
+    render_calls = []
+    monkeypatch.setattr(
+        "app.ui.mode_panel.render_records",
+        lambda preset, records, **k: (
+            render_calls.append(len(records)), [Image.new("RGB", (10, 10)) for _ in records]
+        )[1],
+    )
+    questions = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: questions.append(a)))
+
+    results = panel.generate()
+
+    assert questions == []
+    assert render_calls == [300]
+    assert len(results) == 300
+
+
+def test_301_labels_ask_before_rendering(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "positions", "a", "68x38mm", 68, 38)
+    panel = PositionsModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.corridor_edit.setText("H")
+    panel.number_from_edit.setText("000")
+    panel.number_to_edit.setText("300")  # exactly 301 codes
+    monkeypatch.setattr(
+        "app.ui.mode_panel.render_records",
+        lambda preset, records, **k: [Image.new("RGB", (10, 10)) for _ in records],
+    )
+    questions = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (questions.append(a), QMessageBox.StandardButton.Yes)[1]),
+    )
+
+    results = panel.generate()
+
+    assert len(questions) == 1
+    assert len(results) == 301
 
 
 def test_generate_button_disabled_when_range_is_invalid():
@@ -854,7 +954,7 @@ def test_print_button_disabled_until_something_is_generated():
 
 def test_last_used_template_is_restored_on_next_construction(tmp_path, monkeypatch):
     store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
-    monkeypatch.setattr("app.ui.mode_positions_panel.qsettings", lambda: store)
+    monkeypatch.setattr("app.ui.mode_panel.qsettings", lambda: store)
     _app()
     shared = tmp_path / "shared"
     _write_preset(shared, "positions", "a", "Preset A", 50, 30)

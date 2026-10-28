@@ -58,7 +58,7 @@ def test_qr_code_encodes_the_given_data():
 def test_qr_code_is_never_drawn_edge_to_edge():
     # Deliberately 2 modules, not the 4 ISO/IEC 18004 asks for - see the note
     # on _QR_QUIET_MODULES. What this pins is that the margin exists at all:
-    # at zero the inventory codes sat directly against the black chip bars.
+    # at zero the inventory codes sat directly against the neighbouring chips.
     data = "C002d002e"
     symbol = qrcode.QRCode(border=0)
     symbol.add_data(data)
