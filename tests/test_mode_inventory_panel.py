@@ -53,6 +53,7 @@ def _isolated_settings_dir(monkeypatch, tmp_path):
     # here can never leak into test_mode_positions_panel.py's store.
     store = QSettings(str(tmp_path / "geo.ini"), QSettings.Format.IniFormat)
     monkeypatch.setattr("app.ui.mode_panel.qsettings", lambda: store)
+    monkeypatch.setattr("app.ui.mode_inventory_panel.qsettings", lambda: store)
 
 
 def _write_preset(
@@ -986,3 +987,78 @@ def test_small_batch_does_not_go_through_the_progress_path(monkeypatch):
     panel.print_checked_items()
 
     assert calls == []  # confirmation dialog never shown for a small batch
+
+
+def test_one_label_per_unit_off_by_default_prints_one_per_row():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.load_items(
+        [
+            {"sku": "A", "position_code": "H011A", "quantity": "3"},
+            {"sku": "B", "position_code": "H011A", "quantity": "2"},
+        ]
+    )
+
+    assert len(panel._items_to_print()) == 2
+
+
+def test_one_label_per_unit_repeats_each_item_by_quantity_in_order(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.load_items(
+        [
+            {"sku": "A", "position_code": "H011A", "quantity": "3"},
+            {"sku": "B", "position_code": "H011A", "quantity": "2"},
+        ]
+    )
+    panel.one_per_unit_checkbox.setChecked(True)
+    rendered = []
+
+    def fake_render(preset, records):
+        rendered.extend(records)
+        return [object()] * len(records)
+
+    monkeypatch.setattr(panel, "render_labels", fake_render)
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.print_batch",
+        lambda *a, **k: BatchResult(count=5, archive_path=None),
+    )
+
+    panel.print_checked_items(output_pdf_path=tmp_path / "out.pdf")
+
+    assert [record["sku"] for record in rendered] == ["A", "A", "A", "B", "B"]
+
+
+def test_one_label_per_unit_is_remembered():
+    _app()
+    panel = InventoryModePanel(SETTINGS)
+    panel.one_per_unit_checkbox.setChecked(True)
+
+    fresh = InventoryModePanel(SETTINGS)
+
+    assert fresh.one_per_unit_checkbox.isChecked()
+
+
+def test_one_label_per_unit_cap_applies_to_the_expanded_total(monkeypatch, tmp_path):
+    _app()
+    _write_preset(tmp_path, "a", "40x30mm", 40, 30)
+    panel = InventoryModePanel({**SETTINGS, "shared_folder": str(tmp_path)})
+    panel.load_items(
+        [
+            {"sku": "A", "position_code": "H011A", "quantity": "1500"},
+            {"sku": "B", "position_code": "H011A", "quantity": "600"},
+        ]
+    )
+    panel.one_per_unit_checkbox.setChecked(True)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+    monkeypatch.setattr(
+        "app.ui.mode_inventory_panel.PrintPreviewDialog",
+        lambda **k: pytest.fail("the preview must not open for an over-cap batch"),
+    )
+
+    panel._on_print_clicked()
+
+    assert len(warnings) == 1
+    assert "2100 labels" in warnings[0][2]
