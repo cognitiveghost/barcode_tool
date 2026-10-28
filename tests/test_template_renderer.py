@@ -53,7 +53,12 @@ def test_list_presets_seeds_examples_into_empty_shared_folder(tmp_path):
 def test_list_presets_seeds_inventory_examples_too(tmp_path):
     presets = list_presets(tmp_path, "inventory")
 
-    assert [p.name for p in presets] == ["Default 150x100mm", "QR-SKU 68x38mm"]
+    assert [p.name for p in presets] == [
+        "Default 150x100mm",
+        "Pallet 150x100mm",
+        "Product 68x38mm",
+        "QR-SKU 68x38mm",
+    ]
 
 
 def test_list_presets_keeps_custom_presets_alongside_the_default(tmp_path):
@@ -67,7 +72,13 @@ def test_list_presets_keeps_custom_presets_alongside_the_default(tmp_path):
 
     presets = list_presets(tmp_path, "inventory")
 
-    assert [p.name for p in presets] == ["Custom", "Default 150x100mm", "QR-SKU 68x38mm"]
+    assert [p.name for p in presets] == [
+        "Custom",
+        "Default 150x100mm",
+        "Pallet 150x100mm",
+        "Product 68x38mm",
+        "QR-SKU 68x38mm",
+    ]
     assert (mode_dir / "template.html").read_text() == "<div>{{ sku }}</div>"
 
 
@@ -355,6 +366,28 @@ def test_shipped_qr_sku_preset_scans_the_sku_and_shows_the_name(tmp_path):
     assert abs(image.height - round(38 / 25.4 * 203)) <= 1
     symbols = zxingcpp.read_barcodes(image.convert("L"))
     assert {s.text for s in symbols} == {"SOLARIX-FACE-1000ML-REFILL"}
+
+
+def test_shipped_product_preset_scans_the_sku(tmp_path):
+    preset = next(p for p in list_presets(tmp_path, "inventory") if p.name == "Product 68x38mm")
+
+    image = render_records(preset, [{**INVENTORY_RECORD, "sku": "SKU-12345"}])[0]
+
+    assert abs(image.width - round(68 / 25.4 * 203)) <= 1
+    assert abs(image.height - round(38 / 25.4 * 203)) <= 1
+    symbols = zxingcpp.read_barcodes(image.convert("L"))
+    assert {s.text for s in symbols} == {"SKU-12345"}
+
+
+def test_shipped_pallet_preset_scans_the_position(tmp_path):
+    preset = next(p for p in list_presets(tmp_path, "inventory") if p.name == "Pallet 150x100mm")
+
+    image = render_records(preset, [INVENTORY_RECORD])[0]
+
+    assert abs(image.width - round(150 / 25.4 * 203)) <= 1
+    assert abs(image.height - round(100 / 25.4 * 203)) <= 1
+    symbols = zxingcpp.read_barcodes(image.convert("L"))
+    assert {s.text for s in symbols} == {"C002d002e"}
 
 
 def _a4_preset() -> TemplatePreset:

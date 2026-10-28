@@ -116,3 +116,18 @@ Templates can call anything on `label_tools`:
     label_tools.datamatrix, .hiro_square, .now, .pil_to_html_imgdata, .wrap
         Re-exported from blabel's own label_tools - see blabel's own
         documentation/source for these.
+
+
+Builder presets
+===============
+
+A preset folder with a layout.json was made by the template builder. Open it
+with Template > Edit... or Template > Duplicate... rather than editing the
+HTML or CSS by hand: the builder rewrites template.html, style.css and
+meta.json from layout.json on every Save, so hand edits to those files are
+lost. The shipped builder presets are positions/default, inventory/default,
+inventory/qr-sku-68x38mm, inventory/product-68x38 and
+inventory/pallet-150x100.
+
+A preset without layout.json still works as before, but the builder cannot
+open it.

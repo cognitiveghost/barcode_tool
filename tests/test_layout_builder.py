@@ -18,7 +18,28 @@ from app.core.layout_builder import (
     save_layout,
     slugify,
 )
-from app.core.template_renderer import TemplatePreset, list_presets, render_records
+from app.core.template_renderer import (
+    EXAMPLES_ROOT,
+    TemplatePreset,
+    list_presets,
+    render_records,
+)
+
+REGENERATE = "run: .venv/bin/python -m app.core.layout_builder"
+SHIPPED_FOLDERS = [
+    pytest.param(folder, id=f"{folder.parent.name}/{folder.name}")
+    for mode in ("positions", "inventory")
+    for folder in sorted((EXAMPLES_ROOT / mode).iterdir())
+    if folder.is_dir()
+]
+
+
+@pytest.mark.parametrize("folder", SHIPPED_FOLDERS)
+def test_shipped_layout_files_match_generate(folder):
+    assert (folder / "layout.json").exists(), REGENERATE
+    expected = generate(load_layout(folder))
+    for name, content in expected.items():
+        assert (folder / name).read_text(encoding="utf-8") == content, f"{name} drifted - {REGENERATE}"
 
 
 def _inventory_base(elements):

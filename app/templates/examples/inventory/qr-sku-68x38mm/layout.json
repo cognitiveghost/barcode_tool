@@ -1,0 +1,31 @@
+{
+  "name": "QR-SKU 68x38mm",
+  "mode": "inventory",
+  "width_mm": 68,
+  "height_mm": 38,
+  "elements": [
+    {
+      "type": "qr",
+      "x_mm": 2,
+      "y_mm": 4,
+      "w_mm": 30,
+      "h_mm": 30,
+      "field": "sku"
+    },
+    {
+      "type": "text",
+      "x_mm": 35,
+      "y_mm": 2,
+      "w_mm": 31,
+      "h_mm": 34,
+      "content": "{name}",
+      "max_mm": 5,
+      "min_mm": 2,
+      "wrap": true,
+      "bold": true,
+      "uppercase": false,
+      "align": "left",
+      "letter_spacing_mm": 0
+    }
+  ]
+}
