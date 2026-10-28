@@ -8,7 +8,11 @@ from PySide6.QtWidgets import QApplication
 import app
 from app.core.review_sheet import pickable_columns
 from app.core.template_renderer import TemplatePreset
-from app.ui.export_sheet_dialog import SHIPPED_TABLE_PRESET, TABLE_PRESET_MODE, ExportSheetDialog
+from app.ui.export_sheet_dialog import (
+    SHIPPED_TABLE_PRESET,
+    TABLE_PRESET_MODE,
+    ExportSheetDialog,
+)
 
 
 def _app():
